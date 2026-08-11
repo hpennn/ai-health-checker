@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  ai-health-checker:
+    build: .
+    container_name: ai-health-checker
+    restart: unless-stopped
+    ports:
+      - "8700:8700"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - TZ=Asia/Shanghai
+    networks:
+      - health-checker-net
+
+networks:
+  health-checker-net:
+    driver: bridge

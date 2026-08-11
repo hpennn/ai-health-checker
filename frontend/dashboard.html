@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Health Checker - 站点健康监控</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <style>
+        * { scrollbar-width: thin; scrollbar-color: #3b3b5c #1a1a2e; }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #1a1a2e; }
+        ::-webkit-scrollbar-thumb { background: #3b3b5c; border-radius: 3px; }
+
+        @keyframes pulse-online {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
+            50% { box-shadow: 0 0 0 8px rgba(34, 197, 94, 0); }
+        }
+        @keyframes pulse-offline {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+            50% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+        }
+        @keyframes pulse-slow {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(234, 179, 8, 0.4); }
+            50% { box-shadow: 0 0 0 8px rgba(234, 179, 8, 0); }
+        }
+
+        .status-dot-online { animation: pulse-online 2s infinite; }
+        .status-dot-offline { animation: pulse-offline 1.5s infinite; }
+        .status-dot-slow { animation: pulse-slow 2s infinite; }
+
+        .mini-chart {
+            display: flex; align-items: flex-end; gap: 2px; height: 30px;
+        }
+        .mini-chart .bar {
+            width: 6px; background: linear-gradient(to top, #6366f1, #a855f7);
+            border-radius: 2px 2px 0 0; min-height: 3px;
+            transition: height 0.3s ease;
+        }
+        .mini-chart .bar.offline { background: linear-gradient(to top, #ef4444, #f87171); }
+        .mini-chart .bar.slow { background: linear-gradient(to top, #eab308, #facc15); }
+
+        .card-hover { transition: all 0.2s ease; }
+        .card-hover:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(99, 102, 241, 0.15); border-color: rgba(99, 102, 241, 0.3); }
+
+        .gradient-text {
+            background: linear-gradient(135deg, #6366f1, #a855f7, #ec4899);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .glass {
+            background: rgba(26, 26, 46, 0.6);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(99, 102, 241, 0.1);
+        }
+    </style>
+</head>
+<body class="min-h-screen text-gray-100" style="background: #0f0f1a;">
+    <div x-data="healthData()" x-init="loadData(); startAutoRefresh()">
+        <!-- 顶部导航 -->
+        <nav class="glass sticky top-0 z-50 border-b border-indigo-500/10">
+            <div class="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
+                        <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+                        </svg>
+                    </div>
+                    <div>
+                        <h1 class="text-xl font-bold gradient-text">AI Health Checker</h1>
+                        <p class="text-xs text-gray-500">10 个 Agent 实时监控 · 17 个项目</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-4">
+                    <span class="text-xs text-gray-400" x-text="'上次刷新: ' + lastUpdate"></span>
+                    <button @click="loadData()" class="px-3 py-1.5 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 text-sm transition flex items-center gap-2">
+                        <svg class="w-4 h-4" :class="{'animate-spin': loading}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                        </svg>
+                        刷新
+                    </button>
+                    <button @click="checkAll()" class="px-3 py-1.5 rounded-lg bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white text-sm transition font-medium">
+                        全部检查
+                    </button>
+                </div>
+            </div>
+        </nav>
+
+        <div class="max-w-7xl mx-auto px-4 py-6">
+            <!-- 总览统计 -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div class="glass rounded-2xl p-4">
+                    <div class="flex items-center gap-3">
+                        <div class="w-12 h-12 rounded-xl bg-green-500/10 flex items-center justify-center">
+                            <svg class="w-6 h-6 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                            </svg>
+                        </div>
+                        <div>
+                            <p class="text-xs text-gray-400">在线项目</p>
+                            <p class="text-2xl font-bold text-green-400" x-text="summary.online || 0">0</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="glass rounded-2xl p-4">
+                    <div class="flex items-center gap-3">
+                        <div class="w-12 h-12 rounded-xl bg-red-500/10 flex items-center justify-center">
+                            <svg class="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                            </svg>
+                        </div>
+                        <div>
+                            <p class="text-xs text-gray-400">离线项目</p>
+                            <p class="text-2xl font-bold text-red-400" x-text="summary.offline || 0">0</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="glass rounded-2xl p-4">
+                    <div class="flex items-center gap-3">
+                        <div class="w-12 h-12 rounded-xl bg-indigo-500/10 flex items-center justify-center">
+                            <svg class="w-6 h-6 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            </svg>
+                        </div>
+                        <div>
+                            <p class="text-xs text-gray-400">平均响应</p>
+                            <p class="text-2xl font-bold text-indigo-400">
+                                <span x-text="Math.round(summary.avg_response_time_ms || 0)"></span>
+                                <span class="text-sm font-normal text-gray-500">ms</span>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                <div class="glass rounded-2xl p-4">
+                    <div class="flex items-center gap-3">
+                        <div class="w-12 h-12 rounded-xl bg-purple-500/10 flex items-center justify-center">
+                            <svg class="w-6 h-6 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+                            </svg>
+                        </div>
+                        <div>
+                            <p class="text-xs text-gray-400">运行 Agent</p>
+                            <p class="text-2xl font-bold text-purple-400">
+                                <span x-text="agentsRunning">0</span>
+                                <span class="text-sm font-normal text-gray-500">/10</span>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 项目卡片网格 -->
+            <div class="mb-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-lg font-semibold text-gray-200">📊 项目状态监控</h2>
+                    <div class="flex gap-2">
+                        <button @click="filterCategory = 'all'" 
+                                :class="filterCategory === 'all' ? 'bg-indigo-500/30 text-indigo-300' : 'bg-gray-800/50 text-gray-400 hover:bg-gray-700/50'"
+                                class="px-3 py-1 rounded-lg text-xs transition">
+                            全部
+                        </button>
+                        <button @click="filterCategory = 'AI工具'" 
+                                :class="filterCategory === 'AI工具' ? 'bg-indigo-500/30 text-indigo-300' : 'bg-gray-800/50 text-gray-400 hover:bg-gray-700/50'"
+                                class="px-3 py-1 rounded-lg text-xs transition">
+                            AI工具
+                        </button>
+                        <button @click="filterCategory = '工具'" 
+                                :class="filterCategory === '工具' ? 'bg-indigo-500/30 text-indigo-300' : 'bg-gray-800/50 text-gray-400 hover:bg-gray-700/50'"
+                                class="px-3 py-1 rounded-lg text-xs transition">
+                            工具
+                        </button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                    <template x-for="project in filteredProjects" :key="project.name">
+                        <div class="glass rounded-2xl p-4 card-hover border border-gray-700/30 cursor-pointer"
+                             @click="showDetail(project.name)">
+                            <div class="flex items-start justify-between mb-3">
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-center gap-2">
+                                        <h3 class="font-medium text-gray-100 truncate" x-text="project.name"></h3>
+                                    </div>
+                                    <span class="inline-block mt-1 px-2 py-0.5 text-xs rounded-full"
+                                          :class="project.category === 'AI工具' ? 'bg-purple-500/20 text-purple-300' : 'bg-indigo-500/20 text-indigo-300'"
+                                          x-text="project.category"></span>
+                                </div>
+                                <div class="w-3 h-3 rounded-full ml-2 flex-shrink-0"
+                                     :class="{
+                                         'bg-green-500 status-dot-online': project.status === 'online',
+                                         'bg-red-500 status-dot-offline': project.status === 'offline',
+                                         'bg-yellow-500 status-dot-slow': project.status === 'slow',
+                                         'bg-gray-500': project.status === 'pending' || project.status === 'unknown'
+                                     }"></div>
+                            </div>
+
+                            <div class="flex items-end justify-between mb-3">
+                                <div>
+                                    <p class="text-2xl font-bold"
+                                       :class="{
+                                           'text-green-400': project.status === 'online',
+                                           'text-red-400': project.status === 'offline',
+                                           'text-yellow-400': project.status === 'slow',
+                                           'text-gray-500': project.status === 'pending'
+                                       }">
+                                        <span x-text="project.response_time_ms ? project.response_time_ms.toFixed(0) : '--'"></span>
+                                        <span class="text-xs font-normal text-gray-500" x-show="project.response_time_ms">ms</span>
+                                    </p>
+                                    <p class="text-xs text-gray-500 mt-0.5">
+                                        <span x-show="project.status === 'online'">正常</span>
+                                        <span x-show="project.status === 'offline'">离线</span>
+                                        <span x-show="project.status === 'slow'">较慢</span>
+                                        <span x-show="project.status === 'pending'">等待中</span>
+                                    </p>
+                                </div>
+                                <!-- 迷你折线图 -->
+                                <div class="mini-chart">
+                                    <template x-for="(rt, i) in getMiniChart(project.name)" :key="i">
+                                        <div class="bar"
+                                             :class="{'offline': rt.status === 'offline', 'slow': rt.status === 'slow'}"
+                                             :style="{height: rt.height + '%'}"></div>
+                                    </template>
+                                </div>
+                            </div>
+
+                            <div class="flex items-center justify-between pt-3 border-t border-gray-700/30">
+                                <div class="flex items-center gap-1.5">
+                                    <div class="w-5 h-5 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-[10px] font-bold text-white"
+                                         x-text="project.checker_id || '-'"></div>
+                                    <span class="text-xs text-gray-500">Checker</span>
+                                </div>
+                                <span class="text-xs text-gray-500" x-text="formatTime(project.timestamp)"></span>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- Checker 状态面板 -->
+            <div class="mb-6">
+                <h2 class="text-lg font-semibold text-gray-200 mb-4">🤖 Checker Agent 状态</h2>
+                <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                    <template x-for="agent in agents" :key="agent.id">
+                        <div class="glass rounded-xl p-3 border border-gray-700/30">
+                            <div class="flex items-center gap-2 mb-2">
+                                <div class="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold text-white"
+                                     :class="agent.running ? 'bg-gradient-to-br from-green-500 to-emerald-600' : 'bg-gray-600'">
+                                    <span x-text="agent.id"></span>
+                                </div>
+                                <div class="flex-1 min-w-0">
+                                    <p class="text-xs font-medium text-gray-200 truncate" x-text="agent.name"></p>
+                                    <p class="text-[10px] text-gray-500" x-text="agent.type === 'desktop' ? '🖥 桌面' : agent.type === 'mobile' ? '📱 移动端' : '📱 平板'"></p>
+                                </div>
+                            </div>
+                            <div class="space-y-1">
+                                <div class="flex justify-between text-[11px]">
+                                    <span class="text-gray-500">状态</span>
+                                    <span :class="agent.running ? 'text-green-400' : 'text-gray-500'"
+                                          x-text="agent.running ? '运行中' : '已停止'"></span>
+                                </div>
+                                <div class="flex justify-between text-[11px]">
+                                    <span class="text-gray-500">检测次数</span>
+                                    <span class="text-gray-300" x-text="agent.check_count"></span>
+                                </div>
+                                <div class="flex justify-between text-[11px]">
+                                    <span class="text-gray-500">项目数</span>
+                                    <span class="text-gray-300" x-text="agent.project_count"></span>
+                                </div>
+                                <div class="text-[10px] text-gray-500 truncate" :title="agent.current_task">
+                                    <span class="text-indigo-400">▸</span> <span x-text="agent.current_task"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <!-- 最近检查历史 -->
+            <div>
+                <h2 class="text-lg font-semibold text-gray-200 mb-4">📋 最近检查记录</h2>
+                <div class="glass rounded-2xl overflow-hidden border border-gray-700/30">
+                    <div class="overflow-x-auto max-h-80 overflow-y-auto">
+                        <table class="w-full text-sm">
+                            <thead class="bg-gray-800/50 sticky top-0">
+                                <tr>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-400">状态</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-400">项目</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-400">分类</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-400">响应时间</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-400">状态码</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-400">Checker</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-400">时间</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-700/20">
+                                <template x-for="record in history.slice(0, 20)" :key="record.timestamp + record.project_name">
+                                    <tr class="hover:bg-gray-700/20 transition">
+                                        <td class="px-4 py-2">
+                                            <span class="inline-flex items-center gap-1.5">
+                                                <span class="w-2 h-2 rounded-full"
+                                                      :class="{
+                                                          'bg-green-500': record.status === 'online',
+                                                          'bg-red-500': record.status === 'offline',
+                                                          'bg-yellow-500': record.status === 'slow'
+                                                      }"></span>
+                                            </span>
+                                        </td>
+                                        <td class="px-4 py-2 text-gray-200 font-medium" x-text="record.project_name"></td>
+                                        <td class="px-4 py-2 text-gray-400 text-xs" x-text="record.category"></td>
+                                        <td class="px-4 py-2 text-gray-300">
+                                            <span x-text="record.response_time_ms ? record.response_time_ms.toFixed(0) + 'ms' : '--'"></span>
+                                        </td>
+                                        <td class="px-4 py-2">
+                                            <span class="px-1.5 py-0.5 rounded text-xs"
+                                                  :class="record.status_code === 200 ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'"
+                                                  x-text="record.status_code || '--'"></span>
+                                        </td>
+                                        <td class="px-4 py-2 text-gray-400 text-xs">
+                                            <span class="text-indigo-300">#</span><span x-text="record.checker_id"></span>
+                                        </td>
+                                        <td class="px-4 py-2 text-gray-500 text-xs" x-text="formatTime(record.timestamp)"></td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                        <div x-show="history.length === 0" class="text-center py-8 text-gray-500 text-sm">
+                            暂无检查记录...
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 项目详情弹窗 -->
+            <div x-show="showDetailModal" 
+                 class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+                 @click.self="showDetailModal = false"
+                 x-transition>
+                <div class="glass rounded-2xl w-full max-w-lg max-h-[80vh] overflow-y-auto border border-gray-700/30">
+                    <div class="p-6">
+                        <div class="flex items-start justify-between mb-4">
+                            <div>
+                                <h3 class="text-xl font-bold text-gray-100" x-text="detailProject?.project?.name"></h3>
+                                <p class="text-sm text-gray-400 mt-1" x-text="detailProject?.project?.url"></p>
+                            </div>
+                            <button @click="showDetailModal = false" class="text-gray-400 hover:text-gray-200">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                </svg>
+                            </button>
+                        </div>
+
+                        <div x-show="detailProject?.latest" class="space-y-4">
+                            <div class="grid grid-cols-2 gap-3">
+                                <div class="bg-gray-800/50 rounded-xl p-3">
+                                    <p class="text-xs text-gray-500">状态</p>
+                                    <p class="text-lg font-bold mt-1"
+                                       :class="{
+                                           'text-green-400': detailProject.latest.status === 'online',
+                                           'text-red-400': detailProject.latest.status === 'offline',
+                                           'text-yellow-400': detailProject.latest.status === 'slow'
+                                       }" x-text="statusText(detailProject.latest.status)"></p>
+                                </div>
+                                <div class="bg-gray-800/50 rounded-xl p-3">
+                                    <p class="text-xs text-gray-500">响应时间</p>
+                                    <p class="text-lg font-bold text-indigo-400 mt-1">
+                                        <span x-text="detailProject.latest.response_time_ms?.toFixed(0) || '--'"></span>
+                                        <span class="text-sm font-normal text-gray-500" x-show="detailProject.latest.response_time_ms">ms</span>
+                                    </p>
+                                </div>
+                                <div class="bg-gray-800/50 rounded-xl p-3">
+                                    <p class="text-xs text-gray-500">HTTP 状态码</p>
+                                    <p class="text-lg font-bold text-gray-200 mt-1" x-text="detailProject.latest.status_code || '--'"></p>
+                                </div>
+                                <div class="bg-gray-800/50 rounded-xl p-3">
+                                    <p class="text-xs text-gray-500">Checker</p>
+                                    <p class="text-lg font-bold text-purple-400 mt-1">
+                                        #<span x-text="detailProject.latest.checker_id || '-'"></span>
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div x-show="detailProject.latest.content_check" class="bg-gray-800/50 rounded-xl p-3">
+                                <p class="text-xs text-gray-500 mb-2">页面内容检测</p>
+                                <div class="flex flex-wrap gap-2">
+                                    <span class="px-2 py-1 rounded text-xs"
+                                          :class="detailProject.latest.content_check.has_title ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'">
+                                        <span x-text="detailProject.latest.content_check.has_title ? '✓' : '✗'"></span> title
+                                    </span>
+                                    <span class="px-2 py-1 rounded text-xs"
+                                          :class="detailProject.latest.content_check.has_script ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'">
+                                        <span x-text="detailProject.latest.content_check.has_script ? '✓' : '✗'"></span> script
+                                    </span>
+                                    <span class="px-2 py-1 rounded text-xs"
+                                          :class="detailProject.latest.content_check.has_html_doctype ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'">
+                                        <span x-text="detailProject.latest.content_check.has_html_doctype ? '✓' : '✗'"></span> doctype
+                                    </span>
+                                    <span class="px-2 py-1 rounded text-xs bg-indigo-500/20 text-indigo-400">
+                                        <span x-text="detailProject.latest.content_check.content_length"></span> bytes
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div x-show="detailProject.latest.ssl_check?.ssl_valid !== null" class="bg-gray-800/50 rounded-xl p-3">
+                                <p class="text-xs text-gray-500 mb-2">SSL 证书</p>
+                                <div class="flex items-center gap-2">
+                                    <span class="px-2 py-1 rounded text-xs"
+                                          :class="detailProject.latest.ssl_check.ssl_valid ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'"
+                                          x-text="detailProject.latest.ssl_check.ssl_valid ? '✓ 有效' : '✗ 失效'"></span>
+                                    <span x-show="detailProject.latest.ssl_check.ssl_expiry" class="text-xs text-gray-400">
+                                        到期: <span x-text="detailProject.latest.ssl_check.ssl_expiry?.split('T')[0]"></span>
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div x-show="detailProject.latest.error" class="bg-red-500/10 border border-red-500/20 rounded-xl p-3">
+                                <p class="text-xs text-red-400">
+                                    ⚠ <span x-text="detailProject.latest.error"></span>
+                                </p>
+                            </div>
+
+                            <button @click="triggerCheck(detailProject.project.name)"
+                                    class="w-full py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-medium transition">
+                                立即检查
+                            </button>
+                        </div>
+
+                        <div x-show="!detailProject?.latest" class="text-center py-8 text-gray-500">
+                            暂无检测数据
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer class="text-center py-6 text-gray-600 text-xs">
+            <p>AI Health Checker v1.0 · 10 Agent 分布式监控 · 自动刷新每 30 秒</p>
+        </footer>
+    </div>
+
+    <script>
+        function healthData() {
+            return {
+                summary: { online: 0, offline: 0, slow: 0, avg_response_time_ms: 0, last_check_time: null },
+                projects: {},
+                agents: [],
+                history: [],
+                loading: false,
+                lastUpdate: '--:--:--',
+                filterCategory: 'all',
+                showDetailModal: false,
+                detailProject: null,
+                miniChartCache: {},
+                historyCache: {},
+                autoRefreshTimer: null,
+
+                get filteredProjects() {
+                    const list = Object.values(this.projects);
+                    if (this.filterCategory === 'all') return list;
+                    return list.filter(p => p.category === this.filterCategory);
+                },
+
+                get agentsRunning() {
+                    return this.agents.filter(a => a.running).length;
+                },
+
+                statusText(status) {
+                    const map = { online: '正常', offline: '离线', slow: '较慢', pending: '等待中', unknown: '未知' };
+                    return map[status] || status;
+                },
+
+                formatTime(iso) {
+                    if (!iso) return '--';
+                    try {
+                        const d = new Date(iso);
+                        const now = new Date();
+                        const diff = (now - d) / 1000;
+                        if (diff < 60) return '刚刚';
+                        if (diff < 3600) return Math.floor(diff / 60) + '分钟前';
+                        if (diff < 86400) return Math.floor(diff / 3600) + '小时前';
+                        return d.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+                    } catch(e) { return '--'; }
+                },
+
+                getMiniChart(projectName) {
+                    const history = this.historyCache[projectName] || [];
+                    const last3 = history.slice(-3);
+                    if (last3.length === 0) return [];
+                    const maxRt = Math.max(...last3.map(r => r.response_time_ms || 1000), 1000);
+                    return last3.map(r => ({
+                        height: Math.max(10, Math.min(100, (r.response_time_ms || 0) / maxRt * 100)),
+                        status: r.status
+                    }));
+                },
+
+                async loadData() {
+                    this.loading = true;
+                    try {
+                        // 并行加载状态和 agent
+                        const [statusRes, agentsRes, historyRes] = await Promise.all([
+                            fetch('/api/status').then(r => r.json()),
+                            fetch('/api/agents').then(r => r.json()),
+                            fetch('/api/history').then(r => r.json()),
+                        ]);
+
+                        this.summary = statusRes.summary || {};
+                        this.projects = statusRes.projects || {};
+                        this.agents = agentsRes.agents || [];
+                        this.history = historyRes.records || [];
+
+                        // 构建每个项目的历史缓存（用于迷你图）
+                        const cache = {};
+                        for (const record of this.history) {
+                            if (!cache[record.project_name]) {
+                                cache[record.project_name] = [];
+                            }
+                            cache[record.project_name].push(record);
+                        }
+                        // 排序
+                        for (const key in cache) {
+                            cache[key].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+                        }
+                        this.historyCache = cache;
+
+                        const now = new Date();
+                        this.lastUpdate = now.toLocaleTimeString('zh-CN');
+                    } catch(e) {
+                        console.error('加载数据失败:', e);
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+
+                async showDetail(projectName) {
+                    try {
+                        const res = await fetch('/api/status/' + encodeURIComponent(projectName));
+                        this.detailProject = await res.json();
+                        this.showDetailModal = true;
+                    } catch(e) {
+                        console.error('加载详情失败:', e);
+                    }
+                },
+
+                async triggerCheck(projectName) {
+                    try {
+                        await fetch('/api/check/' + encodeURIComponent(projectName), { method: 'POST' });
+                        await this.loadData();
+                        await this.showDetail(projectName);
+                    } catch(e) {
+                        console.error('检查失败:', e);
+                    }
+                },
+
+                async checkAll() {
+                    if (!confirm('确定要立即检查所有项目吗？这可能需要一点时间。')) return;
+                    try {
+                        await fetch('/api/check-all', { method: 'POST' });
+                        await this.loadData();
+                    } catch(e) {
+                        console.error('批量检查失败:', e);
+                    }
+                },
+
+                startAutoRefresh() {
+                    if (this.autoRefreshTimer) clearInterval(this.autoRefreshTimer);
+                    this.autoRefreshTimer = setInterval(() => {
+                        this.loadData();
+                    }, 30000);
+                },
+            }
+        }
+    </script>
+</body>
+</html>
