@@ -15,7 +15,7 @@ from config import PROJECTS
 
 # 前端 HTML 文件路径
 FRONTEND_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    os.path.dirname(os.path.abspath(__file__)),
     "frontend",
     "dashboard.html"
 )
