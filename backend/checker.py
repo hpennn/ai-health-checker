@@ -239,8 +239,19 @@ class Checker:
             if not self.running:
                 break
 
-            # 多轮检测逻辑
-            rounds = max(1, min(10, config.rounds_per_inspection))
+            # 检查是否达到今日总巡检次数上限
+            if not CheckerManager.can_run_inspection():
+                # 今日已达上限，等待到明天再继续
+                await self._sleep_interruptible(60)
+                continue
+
+            # 每轮巡检开始时，在区间内随机决定本轮检查次数
+            rounds = config.get_random_rounds()
+            rounds = max(1, min(10, rounds))
+
+            # 记录本轮为一次完整巡检（仅在第一个checker上计数，避免重复）
+            if self.id == 1:
+                CheckerManager.increment_inspection_count()
 
             for project in self.projects:
                 if not self.running:
@@ -333,6 +344,12 @@ class CheckerManager:
     _lock = asyncio.Lock()
     _initialized = False
     _ws_clients: list = []  # WebSocket 客户端列表
+
+    # ===== 总巡检次数追踪 =====
+    _inspection_count = 0  # 今日已完成的完整巡检轮数
+    _inspection_count_date = None  # 当前计数对应的日期（YYYY-MM-DD）
+    _daily_inspection_limit = 0  # 今日总巡检上限（0=不限）
+    _next_interval_minutes = None  # 下一次间隔的随机值（分钟，供前端显示）
 
     @classmethod
     async def initialize(cls):
@@ -521,6 +538,51 @@ class CheckerManager:
                 valid_results.append(r)
                 await cls.save_result(r)
         return valid_results
+
+    # ===== 总巡检次数管理 =====
+    @classmethod
+    def _ensure_daily_reset(cls):
+        """确保每日计数重置"""
+        today = datetime.now().strftime("%Y-%m-%d")
+        if cls._inspection_count_date != today:
+            cls._inspection_count_date = today
+            cls._inspection_count = 0
+            # 每日重置时，随机生成今日巡检上限
+            from config import RuntimeConfig
+            config = RuntimeConfig.get_instance()
+            cls._daily_inspection_limit = config.get_random_total_inspections()
+            print(f"[CheckerManager] 每日巡检计数已重置。今日上限: {cls._daily_inspection_limit or '不限'}")
+
+    @classmethod
+    def can_run_inspection(cls) -> bool:
+        """判断是否还可以继续巡检（未达今日上限）"""
+        cls._ensure_daily_reset()
+        if cls._daily_inspection_limit == 0:
+            return True  # 不限
+        return cls._inspection_count < cls._daily_inspection_limit
+
+    @classmethod
+    def increment_inspection_count(cls):
+        """增加一次完整巡检计数（由第一个checker调用）"""
+        cls._ensure_daily_reset()
+        cls._inspection_count += 1
+        print(f"[CheckerManager] 今日已完成第 {cls._inspection_count} 轮巡检（上限: {cls._daily_inspection_limit or '不限'}）")
+
+    @classmethod
+    def get_inspection_stats(cls) -> dict:
+        """获取巡检统计信息"""
+        cls._ensure_daily_reset()
+        # 获取下一次间隔（供前端显示）
+        from config import RuntimeConfig
+        config = RuntimeConfig.get_instance()
+        if cls._next_interval_minutes is None:
+            cls._next_interval_minutes = round(random.uniform(config.interval_min, config.interval_max), 1)
+        return {
+            "today_count": cls._inspection_count,
+            "daily_limit": cls._daily_inspection_limit,
+            "next_interval_minutes": cls._next_interval_minutes,
+            "remaining": max(0, cls._daily_inspection_limit - cls._inspection_count) if cls._daily_inspection_limit > 0 else -1,
+        }
 
     @classmethod
     def get_summary(cls) -> dict:

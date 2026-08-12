@@ -35,12 +35,19 @@ class ControlRequest(BaseModel):
 class ConfigUpdateRequest(BaseModel):
     inspection_enabled: bool | None = None
     time_range: dict | None = None
-    interval_minutes: int | None = None
-    rounds_per_inspection: int | None = None
+    interval_min: int | None = None
+    interval_max: int | None = None
+    rounds_min: int | None = None
+    rounds_max: int | None = None
     rounds_interval_seconds: int | None = None
+    total_inspections_min: int | None = None
+    total_inspections_max: int | None = None
     async_checker_count: int | None = None
     search_engine: str | None = None
     project_search_keywords: dict | None = None
+    # 向后兼容：旧字段
+    interval_minutes: int | None = None
+    rounds_per_inspection: int | None = None
 
 
 # ========== 全局任务 ==========
@@ -185,6 +192,7 @@ async def get_all_status():
         "async_projects": async_status,
         "inspection_enabled": config.inspection_enabled,
         "within_time_range": config.is_within_time_range(),
+        "inspection_stats": CheckerManager.get_inspection_stats(),
     }
 
 
@@ -286,14 +294,32 @@ async def update_config(req: ConfigUpdateRequest):
     if req.time_range is not None:
         update_dict["time_range"] = req.time_range
 
+    if req.interval_min is not None:
+        update_dict["interval_min"] = req.interval_min
+
+    if req.interval_max is not None:
+        update_dict["interval_max"] = req.interval_max
+
     if req.interval_minutes is not None:
         update_dict["interval_minutes"] = req.interval_minutes
+
+    if req.rounds_min is not None:
+        update_dict["rounds_min"] = req.rounds_min
+
+    if req.rounds_max is not None:
+        update_dict["rounds_max"] = req.rounds_max
 
     if req.rounds_per_inspection is not None:
         update_dict["rounds_per_inspection"] = req.rounds_per_inspection
 
     if req.rounds_interval_seconds is not None:
         update_dict["rounds_interval_seconds"] = req.rounds_interval_seconds
+
+    if req.total_inspections_min is not None:
+        update_dict["total_inspections_min"] = req.total_inspections_min
+
+    if req.total_inspections_max is not None:
+        update_dict["total_inspections_max"] = req.total_inspections_max
 
     if req.async_checker_count is not None:
         update_dict["async_checker_count"] = req.async_checker_count

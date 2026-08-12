@@ -182,9 +182,16 @@ class RuntimeConfig:
     def __init__(self):
         self.inspection_enabled = True
         self.time_range = {"start": "00:00", "end": "23:59"}
-        self.interval_minutes = 30
-        self.rounds_per_inspection = 1
+        # 巡检间隔（随机区间，单位：分钟）
+        self.interval_min = 30
+        self.interval_max = 30
+        # 每轮检查次数（随机区间）
+        self.rounds_min = 1
+        self.rounds_max = 1
         self.rounds_interval_seconds = 3  # 每轮内多次检查间隔
+        # 每日总巡检次数（随机区间，0=不限）
+        self.total_inspections_min = 0
+        self.total_inspections_max = 0
         self.async_checker_count = 0
         self.search_engine = "baidu"  # baidu / bing / google
         self.project_search_keywords = _default_search_keywords()
@@ -259,7 +266,7 @@ class RuntimeConfig:
         return {"changed": list(changed_keys), "config": self.to_dict()}
 
     def _apply_dict(self, data: dict):
-        """从字典应用配置（带校验）"""
+        """从字典应用配置（带校验），支持旧字段向后兼容迁移"""
         if "inspection_enabled" in data:
             self.inspection_enabled = bool(data["inspection_enabled"])
 
@@ -271,19 +278,85 @@ class RuntimeConfig:
             if re_match_time(start) and re_match_time(end):
                 self.time_range = {"start": start, "end": end}
 
-        if "interval_minutes" in data:
+        # ========== 向后兼容：旧字段 interval_minutes → interval_min/max ==========
+        if "interval_minutes" in data and "interval_min" not in data and "interval_max" not in data:
             try:
                 v = int(data["interval_minutes"])
-                self.interval_minutes = max(1, min(1440, v))
+                v = max(1, min(1440, v))
+                self.interval_min = v
+                self.interval_max = v
             except (ValueError, TypeError):
                 pass
 
-        if "rounds_per_inspection" in data:
+        if "interval_min" in data:
             try:
-                v = int(data["rounds_per_inspection"])
-                self.rounds_per_inspection = max(1, min(10, v))
+                v = int(data["interval_min"])
+                self.interval_min = max(1, min(1440, v))
             except (ValueError, TypeError):
                 pass
+
+        if "interval_max" in data:
+            try:
+                v = int(data["interval_max"])
+                self.interval_max = max(1, min(1440, v))
+            except (ValueError, TypeError):
+                pass
+
+        # 确保 min <= max
+        if self.interval_min > self.interval_max:
+            self.interval_min, self.interval_max = self.interval_max, self.interval_min
+
+        # ========== 向后兼容：旧字段 rounds_per_inspection → rounds_min/max ==========
+        if "rounds_per_inspection" in data and "rounds_min" not in data and "rounds_max" not in data:
+            try:
+                v = int(data["rounds_per_inspection"])
+                v = max(1, min(10, v))
+                self.rounds_min = v
+                self.rounds_max = v
+            except (ValueError, TypeError):
+                pass
+
+        if "rounds_min" in data:
+            try:
+                v = int(data["rounds_min"])
+                self.rounds_min = max(1, min(10, v))
+            except (ValueError, TypeError):
+                pass
+
+        if "rounds_max" in data:
+            try:
+                v = int(data["rounds_max"])
+                self.rounds_max = max(1, min(10, v))
+            except (ValueError, TypeError):
+                pass
+
+        # 确保 min <= max
+        if self.rounds_min > self.rounds_max:
+            self.rounds_min, self.rounds_max = self.rounds_max, self.rounds_min
+
+        # ========== 每日总巡检次数（随机区间） ==========
+        if "total_inspections_min" in data:
+            try:
+                v = int(data["total_inspections_min"])
+                self.total_inspections_min = max(0, min(100, v))
+            except (ValueError, TypeError):
+                pass
+
+        if "total_inspections_max" in data:
+            try:
+                v = int(data["total_inspections_max"])
+                self.total_inspections_max = max(0, min(100, v))
+            except (ValueError, TypeError):
+                pass
+
+        # 确保 min <= max（如果都是0则不限；如果只有一个为0，以另一个为准）
+        if self.total_inspections_min > 0 and self.total_inspections_max > 0:
+            if self.total_inspections_min > self.total_inspections_max:
+                self.total_inspections_min, self.total_inspections_max = self.total_inspections_max, self.total_inspections_min
+        elif self.total_inspections_min > 0 and self.total_inspections_max == 0:
+            self.total_inspections_max = self.total_inspections_min
+        elif self.total_inspections_max > 0 and self.total_inspections_min == 0:
+            self.total_inspections_min = self.total_inspections_max
 
         if "rounds_interval_seconds" in data:
             try:
@@ -317,9 +390,13 @@ class RuntimeConfig:
         return {
             "inspection_enabled": self.inspection_enabled,
             "time_range": dict(self.time_range),
-            "interval_minutes": self.interval_minutes,
-            "rounds_per_inspection": self.rounds_per_inspection,
+            "interval_min": self.interval_min,
+            "interval_max": self.interval_max,
+            "rounds_min": self.rounds_min,
+            "rounds_max": self.rounds_max,
             "rounds_interval_seconds": self.rounds_interval_seconds,
+            "total_inspections_min": self.total_inspections_min,
+            "total_inspections_max": self.total_inspections_max,
             "async_checker_count": self.async_checker_count,
             "search_engine": self.search_engine,
             "project_search_keywords": {
@@ -344,10 +421,19 @@ class RuntimeConfig:
             return now_minutes >= start_minutes or now_minutes <= end_minutes
 
     def get_interval_seconds(self) -> float:
-        """获取巡检间隔（秒），带±10%随机扰动"""
-        base = self.interval_minutes * 60
-        jitter = base * 0.1
-        return base + random.uniform(-jitter, jitter)
+        """获取巡检间隔（秒），在 interval_min ~ interval_max 分钟之间随机取值"""
+        minutes = random.uniform(self.interval_min, self.interval_max)
+        return minutes * 60
+
+    def get_random_rounds(self) -> int:
+        """获取本轮检查次数，在 rounds_min ~ rounds_max 之间随机取整数"""
+        return random.randint(self.rounds_min, self.rounds_max)
+
+    def get_random_total_inspections(self) -> int:
+        """获取每日总巡检次数上限，在 total_inspections_min ~ max 之间随机；0表示不限"""
+        if self.total_inspections_min == 0 and self.total_inspections_max == 0:
+            return 0  # 不限
+        return random.randint(self.total_inspections_min, self.total_inspections_max)
 
     def get_project_keywords(self, project_name: str) -> list[str]:
         """获取项目的搜索关键词"""

@@ -212,16 +212,54 @@
                                class="config-input w-full px-3 py-2 rounded-lg text-sm">
                     </div>
                     <div class="bg-gray-800/30 rounded-xl p-4">
-                        <label class="text-sm text-gray-400 block mb-2">巡检间隔（分钟）</label>
-                        <input type="number" x-model.number="config.interval_minutes" min="1" max="1440"
-                               class="config-input w-full px-3 py-2 rounded-lg text-sm">
-                        <p class="text-xs text-gray-500 mt-1">范围 1-1440 分钟，默认30</p>
+                        <label class="text-sm text-gray-400 block mb-2">
+                            间隔：<span class="text-indigo-300" x-text="config.interval_min"></span> ~ <span class="text-indigo-300" x-text="config.interval_max"></span> 分钟
+                        </label>
+                        <div class="flex items-center gap-2">
+                            <input type="number" x-model.number="config.interval_min" min="1" max="1440"
+                                   class="config-input w-full px-3 py-2 rounded-lg text-sm" placeholder="最小">
+                            <span class="text-gray-500 text-xs">~</span>
+                            <input type="number" x-model.number="config.interval_max" min="1" max="1440"
+                                   class="config-input w-full px-3 py-2 rounded-lg text-sm" placeholder="最大">
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1">范围 1-1440 分钟</p>
+                        <p class="text-xs text-green-400 mt-1" x-show="inspectionStats.next_interval_minutes">
+                            下次间隔：<span x-text="inspectionStats.next_interval_minutes"></span> 分钟后
+                        </p>
                     </div>
                     <div class="bg-gray-800/30 rounded-xl p-4">
-                        <label class="text-sm text-gray-400 block mb-2">每轮检查次数</label>
-                        <input type="number" x-model.number="config.rounds_per_inspection" min="1" max="10"
-                               class="config-input w-full px-3 py-2 rounded-lg text-sm">
-                        <p class="text-xs text-gray-500 mt-1">每轮内每项目检查 1-10 次</p>
+                        <label class="text-sm text-gray-400 block mb-2">
+                            轮数：<span class="text-indigo-300" x-text="config.rounds_min"></span> ~ <span class="text-indigo-300" x-text="config.rounds_max"></span> 次
+                        </label>
+                        <div class="flex items-center gap-2">
+                            <input type="number" x-model.number="config.rounds_min" min="1" max="10"
+                                   class="config-input w-full px-3 py-2 rounded-lg text-sm" placeholder="最小">
+                            <span class="text-gray-500 text-xs">~</span>
+                            <input type="number" x-model.number="config.rounds_max" min="1" max="10"
+                                   class="config-input w-full px-3 py-2 rounded-lg text-sm" placeholder="最大">
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1">每轮内每项目检查 1-10 次（随机）</p>
+                    </div>
+                    <div class="bg-gray-800/30 rounded-xl p-4 lg:col-span-2">
+                        <label class="text-sm text-gray-400 block mb-2">
+                            每日总巡检：
+                            <span class="text-indigo-300" x-text="config.total_inspections_min"></span> ~ <span class="text-indigo-300" x-text="config.total_inspections_max"></span> 次
+                            <span class="text-xs text-gray-500">（0=不限）</span>
+                        </label>
+                        <div class="flex items-center gap-2">
+                            <input type="number" x-model.number="config.total_inspections_min" min="0" max="100"
+                                   class="config-input w-full px-3 py-2 rounded-lg text-sm" placeholder="最小">
+                            <span class="text-gray-500 text-xs">~</span>
+                            <input type="number" x-model.number="config.total_inspections_max" min="0" max="100"
+                                   class="config-input w-full px-3 py-2 rounded-lg text-sm" placeholder="最大">
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1">范围 0-100 次，0 表示不限次数</p>
+                        <p class="text-xs text-purple-400 mt-1" x-show="inspectionStats.daily_limit > 0">
+                            今日已巡检 <span x-text="inspectionStats.today_count"></span> / <span x-text="inspectionStats.daily_limit"></span> 次
+                        </p>
+                        <p class="text-xs text-gray-400 mt-1" x-show="inspectionStats.daily_limit === 0">
+                            今日已巡检 <span x-text="inspectionStats.today_count"></span> 次（不限次数）
+                        </p>
                     </div>
                 </div>
 
@@ -712,12 +750,24 @@
                 config: {
                     inspection_enabled: true,
                     time_range: { start: '00:00', end: '23:59' },
-                    interval_minutes: 30,
-                    rounds_per_inspection: 1,
+                    interval_min: 30,
+                    interval_max: 30,
+                    rounds_min: 1,
+                    rounds_max: 1,
                     rounds_interval_seconds: 3,
+                    total_inspections_min: 0,
+                    total_inspections_max: 0,
                     async_checker_count: 0,
                     search_engine: 'baidu',
                     project_search_keywords: {},
+                },
+
+                // 巡检统计
+                inspectionStats: {
+                    today_count: 0,
+                    daily_limit: 0,
+                    next_interval_minutes: null,
+                    remaining: -1,
                 },
 
                 // WebSocket
@@ -779,7 +829,21 @@
                 async loadConfig() {
                     try {
                         const res = await fetch('/api/config');
-                        this.config = await res.json();
+                        const data = await res.json();
+                        // 向后兼容：旧字段映射
+                        if (data.interval_minutes !== undefined && data.interval_min === undefined) {
+                            data.interval_min = data.interval_minutes;
+                            data.interval_max = data.interval_minutes;
+                            delete data.interval_minutes;
+                        }
+                        if (data.rounds_per_inspection !== undefined && data.rounds_min === undefined) {
+                            data.rounds_min = data.rounds_per_inspection;
+                            data.rounds_max = data.rounds_per_inspection;
+                            delete data.rounds_per_inspection;
+                        }
+                        if (data.total_inspections_min === undefined) data.total_inspections_min = 0;
+                        if (data.total_inspections_max === undefined) data.total_inspections_max = 0;
+                        this.config = { ...this.config, ...data };
                     } catch(e) {
                         console.error('加载配置失败:', e);
                     }
@@ -797,6 +861,7 @@
                         this.summary = statusRes.summary || {};
                         this.projects = statusRes.projects || {};
                         this.withinTimeRange = statusRes.within_time_range !== false;
+                        this.inspectionStats = statusRes.inspection_stats || this.inspectionStats;
                         this.agents = agentsRes.agents || [];
                         this.history = historyRes.records || [];
 
@@ -875,8 +940,17 @@
 
                 _handleWSMessage(msg) {
                     if (msg.type === 'config_update') {
-                        // 配置变更，更新本地配置
-                        Object.assign(this.config, msg.config);
+                        // 配置变更，更新本地配置（兼容新旧字段）
+                        const cfg = { ...msg.config };
+                        if (cfg.interval_minutes !== undefined && cfg.interval_min === undefined) {
+                            cfg.interval_min = cfg.interval_minutes;
+                            cfg.interval_max = cfg.interval_minutes;
+                        }
+                        if (cfg.rounds_per_inspection !== undefined && cfg.rounds_min === undefined) {
+                            cfg.rounds_min = cfg.rounds_per_inspection;
+                            cfg.rounds_max = cfg.rounds_per_inspection;
+                        }
+                        Object.assign(this.config, cfg);
                         // 异步Checker数量变更时刷新列表
                         if (msg.config.async_checker_count > 0) {
                             this.loadAsyncCheckers();
