@@ -1,6 +1,9 @@
-"""配置管理 - 项目列表、检查间隔、Checker身份等"""
+"""配置管理 - 项目列表、检查间隔、Checker身份、全局巡检配置"""
 import os
+import json
 import random
+import asyncio
+from datetime import datetime
 
 # ========== 监控项目列表 ==========
 PROJECTS = [
@@ -19,137 +22,116 @@ PROJECTS = [
     {"name": "文本工具", "url": "https://www.hpenn.xyz", "category": "工具"},
     {"name": "开发工具", "url": "https://www.hpennn.xyz", "category": "工具"},
     {"name": "祝福生成", "url": "https://www.zhinenti.vip", "category": "工具"},
-    {"name": "AI文案", "url": "https://www.zhinenti.xyz", "category": "工具"},
+    {"name": "AI文案", "url": "https://www.zhinenti.xyz", "category": "AI工具"},
     {"name": "批量图片编辑", "url": "https://imgedit.hpenn.xyz", "category": "工具"},
 ]
 
-# ========== 检查配置 ==========
-CHECK_INTERVAL_MIN = 30   # 最小检查间隔（秒）
-CHECK_INTERVAL_MAX = 120  # 最大检查间隔（秒）
+# ========== 检查配置（基础常量） ==========
 REQUEST_TIMEOUT = 10      # 请求超时时间（秒）
 SLOW_THRESHOLD = 5        # 慢响应阈值（秒）
 HISTORY_MAX_SIZE = 100    # 每个项目历史记录最大条数
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 RESULTS_FILE = os.path.join(DATA_DIR, "check_results.json")
+CONFIG_FILE = os.path.join(DATA_DIR, "config.json")
 
 # ========== 10个 Checker 的独立身份 ==========
-# 每个 Checker 有独立的 User-Agent 和 IP 池
 CHECKER_IDENTITIES = [
     {
-        "id": 1,
-        "name": "Chrome-Win10",
+        "id": 1, "name": "Chrome-Win10",
         "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-        "ip_pool": [
-            "203.0.113.15", "203.0.113.42", "198.51.100.77",
-            "192.0.2.123", "203.0.113.88",
-        ],
+        "ip_pool": ["203.0.113.15", "203.0.113.42", "198.51.100.77", "192.0.2.123", "203.0.113.88"],
         "type": "desktop",
     },
     {
-        "id": 2,
-        "name": "Firefox-Win11",
+        "id": 2, "name": "Firefox-Win11",
         "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0",
-        "ip_pool": [
-            "198.51.100.23", "198.51.100.56", "203.0.113.101",
-            "192.0.2.200", "198.51.100.150",
-        ],
+        "ip_pool": ["198.51.100.23", "198.51.100.56", "203.0.113.101", "192.0.2.200", "198.51.100.150"],
         "type": "desktop",
     },
     {
-        "id": 3,
-        "name": "Safari-macOS",
+        "id": 3, "name": "Safari-macOS",
         "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15",
-        "ip_pool": [
-            "104.28.15.67", "104.28.16.89", "172.67.180.12",
-            "104.21.45.231", "172.67.132.45",
-        ],
+        "ip_pool": ["104.28.15.67", "104.28.16.89", "172.67.180.12", "104.21.45.231", "172.67.132.45"],
         "type": "desktop",
     },
     {
-        "id": 4,
-        "name": "Edge-Win10",
+        "id": 4, "name": "Edge-Win10",
         "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 Edg/126.0.0.0",
-        "ip_pool": [
-            "52.14.87.231", "18.190.123.45", "35.186.200.88",
-            "104.154.89.67", "130.211.45.123",
-        ],
+        "ip_pool": ["52.14.87.231", "18.190.123.45", "35.186.200.88", "104.154.89.67", "130.211.45.123"],
         "type": "desktop",
     },
     {
-        "id": 5,
-        "name": "Chrome-iPhone",
+        "id": 5, "name": "Chrome-iPhone",
         "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/126.0.6478.118 Mobile/15E148 Safari/604.1",
-        "ip_pool": [
-            "17.58.96.0", "17.58.100.45", "17.173.255.12",
-            "17.248.128.67", "17.170.80.200",
-        ],
+        "ip_pool": ["17.58.96.0", "17.58.100.45", "17.173.255.12", "17.248.128.67", "17.170.80.200"],
         "type": "mobile",
     },
     {
-        "id": 6,
-        "name": "Safari-iPad",
+        "id": 6, "name": "Safari-iPad",
         "user_agent": "Mozilla/5.0 (iPad; CPU OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15",
-        "ip_pool": [
-            "17.110.224.0", "17.110.230.56", "17.255.128.34",
-            "17.200.80.120", "17.150.45.78",
-        ],
+        "ip_pool": ["17.110.224.0", "17.110.230.56", "17.255.128.34", "17.200.80.120", "17.150.45.78"],
         "type": "tablet",
     },
     {
-        "id": 7,
-        "name": "Chrome-Android",
+        "id": 7, "name": "Chrome-Android",
         "user_agent": "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.6478.119 Mobile Safari/537.36",
-        "ip_pool": [
-            "39.156.66.10", "220.181.38.148", "111.13.101.208",
-            "123.125.71.90", "61.135.169.121",
-        ],
+        "ip_pool": ["39.156.66.10", "220.181.38.148", "111.13.101.208", "123.125.71.90", "61.135.169.121"],
         "type": "mobile",
     },
     {
-        "id": 8,
-        "name": "Firefox-Ubuntu",
+        "id": 8, "name": "Firefox-Ubuntu",
         "user_agent": "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:127.0) Gecko/20100101 Firefox/127.0",
-        "ip_pool": [
-            "162.159.135.234", "188.114.96.0", "173.245.48.12",
-            "190.93.244.56", "197.234.240.200",
-        ],
+        "ip_pool": ["162.159.135.234", "188.114.96.0", "173.245.48.12", "190.93.244.56", "197.234.240.200"],
         "type": "desktop",
     },
     {
-        "id": 9,
-        "name": "Chrome-Linux",
+        "id": 9, "name": "Chrome-Linux",
         "user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-        "ip_pool": [
-            "140.82.112.3", "151.101.1.6", "140.82.113.4",
-            "151.101.65.140", "140.82.114.21",
-        ],
+        "ip_pool": ["140.82.112.3", "151.101.1.6", "140.82.113.4", "151.101.65.140", "140.82.114.21"],
         "type": "desktop",
     },
     {
-        "id": 10,
-        "name": "Samsung-Android",
+        "id": 10, "name": "Samsung-Android",
         "user_agent": "Mozilla/5.0 (Linux; Android 14; SAMSUNG SM-S928U1) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/25.0 Chrome/124.0.6367.113 Mobile Safari/537.36",
-        "ip_pool": [
-            "58.211.137.148", "117.136.81.145", "117.136.64.11",
-            "223.104.128.200", "120.197.22.130",
-        ],
+        "ip_pool": ["58.211.137.148", "117.136.81.145", "117.136.64.11", "223.104.128.200", "120.197.22.130"],
         "type": "mobile",
     },
 ]
 
+# ========== 异步Checker 身份池（独立于同步Checker） ==========
+ASYNC_CHECKER_IDENTITIES = [
+    {"user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36", "type": "desktop"},
+    {"user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15", "type": "desktop"},
+    {"user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36", "type": "desktop"},
+    {"user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0", "type": "desktop"},
+    {"user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/125.0.6422.119 Mobile/15E148 Safari/604.1", "type": "mobile"},
+    {"user_agent": "Mozilla/5.0 (Linux; Android 14; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36", "type": "mobile"},
+    {"user_agent": "Mozilla/5.0 (iPad; CPU OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15", "type": "tablet"},
+    {"user_agent": "Mozilla/5.0 (Linux; Android 14; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36", "type": "mobile"},
+    {"user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 Edg/124.0.0.0", "type": "desktop"},
+    {"user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36", "type": "desktop"},
+    {"user_agent": "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:126.0) Gecko/20100101 Firefox/126.0", "type": "desktop"},
+    {"user_agent": "Mozilla/5.0 (Linux; Android 14; MI 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36", "type": "mobile"},
+    {"user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1", "type": "mobile"},
+    {"user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36", "type": "desktop"},
+    {"user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_6) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Safari/605.1.15", "type": "desktop"},
+    {"user_agent": "Mozilla/5.0 (Linux; Android 13; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36", "type": "mobile"},
+    {"user_agent": "Mozilla/5.0 (iPad; CPU OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Safari/605.1.15", "type": "tablet"},
+    {"user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0", "type": "desktop"},
+    {"user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", "type": "desktop"},
+    {"user_agent": "Mozilla/5.0 (Linux; Android 14; OnePlus 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36", "type": "mobile"},
+]
+
 
 def get_random_ip(ip_pool: list) -> str:
-    """从 IP 池中随机选择一个 IP"""
     return random.choice(ip_pool)
 
 
-def get_random_interval() -> float:
-    """获取随机检查间隔"""
-    return random.uniform(CHECK_INTERVAL_MIN, CHECK_INTERVAL_MAX)
+def get_random_interval(min_sec: float = 30, max_sec: float = 120) -> float:
+    return random.uniform(min_sec, max_sec)
 
 
 def get_project_by_name(name: str) -> dict | None:
-    """根据名称获取项目"""
     for p in PROJECTS:
         if p["name"] == name:
             return p
@@ -157,9 +139,222 @@ def get_project_by_name(name: str) -> dict | None:
 
 
 def assign_projects_to_checkers():
-    """将17个项目分配给10个Checker（轮询分配）"""
     assignments = {i + 1: [] for i in range(10)}
     for idx, project in enumerate(PROJECTS):
         checker_id = (idx % 10) + 1
         assignments[checker_id].append(project)
     return assignments
+
+
+def _default_search_keywords() -> dict:
+    """为每个项目生成默认搜索关键词"""
+    keywords_map = {}
+    keyword_presets = {
+        "智能工作台": ["AI办公工具", "智能体工作台", "AI工作台"],
+        "部署助手": ["一键部署", "自动化部署", "AI部署"],
+        "营销助手": ["AI营销", "营销文案生成", "智能营销"],
+        "智能部署": ["自动部署工具", "智能部署系统", "一键部署工具"],
+        "AI客服管理": ["AI客服", "智能客服系统", "客服管理系统"],
+        "起名工具": ["AI起名", "智能起名", "在线起名"],
+        "导航站": ["AI工具导航", "工具导航站", "AI导航"],
+        "OCR识别": ["OCR文字识别", "图片转文字", "在线OCR"],
+        "AI简历": ["AI简历生成", "智能简历", "简历生成器"],
+        "图片工具": ["图片处理工具", "在线图片编辑", "AI图片工具"],
+        "文档摘要": ["文档摘要生成", "AI文档总结", "长文摘要"],
+        "文档转换": ["文档格式转换", "PDF转换", "在线文档转换"],
+        "文本工具": ["文本处理工具", "在线文本工具", "文字工具"],
+        "开发工具": ["开发者工具", "在线开发工具", "编程工具"],
+        "祝福生成": ["祝福语生成", "AI祝福", "生日祝福"],
+        "AI文案": ["AI文案生成", "智能文案", "文案写作工具"],
+        "批量图片编辑": ["批量图片处理", "图片批量编辑", "批量修图"],
+    }
+    for p in PROJECTS:
+        keywords_map[p["name"]] = keyword_presets.get(p["name"], [p["name"], p["name"] + " 官网"])
+    return keywords_map
+
+
+class RuntimeConfig:
+    """运行时配置管理 - 支持持久化到 config.json，动态热更新"""
+
+    _instance = None
+    _lock = asyncio.Lock()
+
+    def __init__(self):
+        self.inspection_enabled = True
+        self.time_range = {"start": "00:00", "end": "23:59"}
+        self.interval_minutes = 30
+        self.rounds_per_inspection = 1
+        self.rounds_interval_seconds = 3  # 每轮内多次检查间隔
+        self.async_checker_count = 0
+        self.search_engine = "baidu"  # baidu / bing / google
+        self.project_search_keywords = _default_search_keywords()
+        self._listeners = []  # 配置变更回调
+
+    @classmethod
+    def get_instance(cls) -> "RuntimeConfig":
+        if cls._instance is None:
+            cls._instance = RuntimeConfig()
+        return cls._instance
+
+    def register_listener(self, callback):
+        """注册配置变更监听器"""
+        self._listeners.append(callback)
+
+    def unregister_listener(self, callback):
+        if callback in self._listeners:
+            self._listeners.remove(callback)
+
+    async def notify_change(self, changed_keys: set):
+        """通知所有监听器配置已变更"""
+        for cb in self._listeners:
+            try:
+                if asyncio.iscoroutinefunction(cb):
+                    await cb(changed_keys)
+                else:
+                    cb(changed_keys)
+            except Exception as e:
+                print(f"[Config] 通知监听器失败: {e}")
+
+    async def load(self):
+        """从文件加载配置，不存在则使用默认值并创建"""
+        async with self._lock:
+            if os.path.exists(CONFIG_FILE):
+                try:
+                    with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    self._apply_dict(data)
+                    print(f"[Config] 已加载配置: {CONFIG_FILE}")
+                except Exception as e:
+                    print(f"[Config] 加载配置失败，使用默认值: {e}")
+            else:
+                print(f"[Config] 配置文件不存在，使用默认值")
+            # 保存一次以确保文件存在
+            await self._save_to_file()
+
+    async def _save_to_file(self):
+        """保存配置到文件（必须持有 _lock）"""
+        try:
+            os.makedirs(os.path.dirname(CONFIG_FILE), exist_ok=True)
+            with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+                json.dump(self.to_dict(), f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"[Config] 保存配置失败: {e}")
+
+    async def update(self, new_config: dict) -> dict:
+        """更新配置并持久化，返回变更的keys"""
+        async with self._lock:
+            old_dict = self.to_dict()
+            self._apply_dict(new_config)
+            await self._save_to_file()
+            new_dict = self.to_dict()
+
+        changed_keys = set()
+        for key in new_config.keys():
+            if old_dict.get(key) != new_dict.get(key):
+                changed_keys.add(key)
+
+        if changed_keys:
+            await self.notify_change(changed_keys)
+
+        return {"changed": list(changed_keys), "config": self.to_dict()}
+
+    def _apply_dict(self, data: dict):
+        """从字典应用配置（带校验）"""
+        if "inspection_enabled" in data:
+            self.inspection_enabled = bool(data["inspection_enabled"])
+
+        if "time_range" in data and isinstance(data["time_range"], dict):
+            tr = data["time_range"]
+            start = tr.get("start", self.time_range["start"])
+            end = tr.get("end", self.time_range["end"])
+            # 简单格式校验 HH:MM
+            if re_match_time(start) and re_match_time(end):
+                self.time_range = {"start": start, "end": end}
+
+        if "interval_minutes" in data:
+            try:
+                v = int(data["interval_minutes"])
+                self.interval_minutes = max(1, min(1440, v))
+            except (ValueError, TypeError):
+                pass
+
+        if "rounds_per_inspection" in data:
+            try:
+                v = int(data["rounds_per_inspection"])
+                self.rounds_per_inspection = max(1, min(10, v))
+            except (ValueError, TypeError):
+                pass
+
+        if "rounds_interval_seconds" in data:
+            try:
+                v = int(data["rounds_interval_seconds"])
+                self.rounds_interval_seconds = max(1, min(60, v))
+            except (ValueError, TypeError):
+                pass
+
+        if "async_checker_count" in data:
+            try:
+                v = int(data["async_checker_count"])
+                self.async_checker_count = max(0, min(20, v))
+            except (ValueError, TypeError):
+                pass
+
+        if "search_engine" in data:
+            se = str(data["search_engine"]).lower()
+            if se in ("baidu", "bing", "google"):
+                self.search_engine = se
+
+        if "project_search_keywords" in data and isinstance(data["project_search_keywords"], dict):
+            # 只更新存在的项目
+            for pname, kws in data["project_search_keywords"].items():
+                if isinstance(kws, list):
+                    # 限制 1-3 个关键词
+                    valid_kws = [str(k) for k in kws[:3] if str(k).strip()]
+                    if valid_kws:
+                        self.project_search_keywords[pname] = valid_kws
+
+    def to_dict(self) -> dict:
+        return {
+            "inspection_enabled": self.inspection_enabled,
+            "time_range": dict(self.time_range),
+            "interval_minutes": self.interval_minutes,
+            "rounds_per_inspection": self.rounds_per_inspection,
+            "rounds_interval_seconds": self.rounds_interval_seconds,
+            "async_checker_count": self.async_checker_count,
+            "search_engine": self.search_engine,
+            "project_search_keywords": {
+                k: list(v) for k, v in self.project_search_keywords.items()
+            },
+        }
+
+    def is_within_time_range(self, now_time: datetime | None = None) -> bool:
+        """判断当前时间是否在巡检时间段内"""
+        if now_time is None:
+            now_time = datetime.now()
+        now_minutes = now_time.hour * 60 + now_time.minute
+        start_h, start_m = self.time_range["start"].split(":")
+        end_h, end_m = self.time_range["end"].split(":")
+        start_minutes = int(start_h) * 60 + int(start_m)
+        end_minutes = int(end_h) * 60 + int(end_m)
+
+        if start_minutes <= end_minutes:
+            return start_minutes <= now_minutes <= end_minutes
+        else:
+            # 跨天情况，如 22:00 - 06:00
+            return now_minutes >= start_minutes or now_minutes <= end_minutes
+
+    def get_interval_seconds(self) -> float:
+        """获取巡检间隔（秒），带±10%随机扰动"""
+        base = self.interval_minutes * 60
+        jitter = base * 0.1
+        return base + random.uniform(-jitter, jitter)
+
+    def get_project_keywords(self, project_name: str) -> list[str]:
+        """获取项目的搜索关键词"""
+        return self.project_search_keywords.get(project_name, [project_name])
+
+
+def re_match_time(s: str) -> bool:
+    """简单的 HH:MM 格式校验"""
+    import re
+    return bool(re.match(r'^\d{2}:\d{2}$', s))

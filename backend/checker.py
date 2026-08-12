@@ -20,7 +20,6 @@ from config import (
     RESULTS_FILE,
     DATA_DIR,
     get_random_ip,
-    get_random_interval,
     assign_projects_to_checkers,
 )
 
@@ -42,6 +41,17 @@ class Checker:
         self.current_task = "空闲"
         self.last_check_time = None
         self._stop_event = asyncio.Event()
+        self._pause_event = asyncio.Event()  # set=运行，clear=暂停
+        self._pause_event.set()
+
+        # 延迟导入 RuntimeConfig
+        self._config = None
+
+    def _get_config(self):
+        if self._config is None:
+            from config import RuntimeConfig
+            self._config = RuntimeConfig.get_instance()
+        return self._config
 
     def _build_headers(self) -> dict:
         """构建请求头，模拟真实浏览器"""
@@ -79,7 +89,6 @@ class Checker:
             writer.close()
             await writer.wait_closed()
 
-            # 解析证书有效期
             not_after_str = cert.get("notAfter", "")
             expiry = None
             if not_after_str:
@@ -120,7 +129,6 @@ class Checker:
                         "api_sample_keys": list(data.keys())[:5] if isinstance(data, dict) else [],
                     }
                 except (json.JSONDecodeError, ValueError):
-                    # 可能是普通页面，不算错误
                     return {
                         "api_ok": True,
                         "api_status": resp.status_code,
@@ -128,7 +136,6 @@ class Checker:
                         "api_sample_keys": [],
                     }
         except Exception:
-            # /api 路径不存在或出错，不算主站故障
             return None
 
     async def check_project(self, project: dict) -> dict:
@@ -170,7 +177,6 @@ class Checker:
                 result["status_code"] = resp.status_code
                 result["response_time_ms"] = response_time_ms
 
-                # 状态判断
                 if resp.status_code == 200:
                     if response_time_ms > SLOW_THRESHOLD * 1000:
                         result["status"] = "slow"
@@ -179,7 +185,6 @@ class Checker:
                 else:
                     result["status"] = "offline"
 
-                # 页面内容检查
                 html = resp.text
                 content_check = {
                     "has_title": bool(re.search(r"<title[^>]*>.*</title>", html, re.IGNORECASE | re.DOTALL)),
@@ -209,11 +214,9 @@ class Checker:
             result["response_time_ms"] = round(elapsed * 1000, 2)
             result["error"] = f"未知错误: {str(e)[:80]}"
 
-        # SSL 检查（HTTPS 站点）
         if url.startswith("https://"):
             result["ssl_check"] = await self._check_ssl(url)
 
-        # API 端点检测（可选，不影响主状态）
         result["api_check"] = await self._check_api_endpoint(url, headers)
 
         self.check_count += 1
@@ -223,45 +226,84 @@ class Checker:
         return result
 
     async def run_loop(self):
-        """Checker 主循环 - 持续检测负责的项目"""
+        """Checker 主循环 - 支持暂停/恢复和动态间隔"""
         self.running = True
         self._stop_event.clear()
+        self._pause_event.set()
+
+        config = self._get_config()
 
         while self.running:
+            # 等待暂停解除
+            await self._pause_event.wait()
+            if not self.running:
+                break
+
+            # 多轮检测逻辑
+            rounds = max(1, min(10, config.rounds_per_inspection))
+
             for project in self.projects:
                 if not self.running:
                     break
-                try:
-                    result = await self.check_project(project)
-                    # 存入全局结果存储
-                    await CheckerManager.save_result(result)
-                except Exception as e:
-                    print(f"[Checker-{self.id}] 检测 {project['name']} 异常: {e}")
-
-                # 随机间隔
-                interval = get_random_interval()
-                try:
-                    await asyncio.wait_for(
-                        asyncio.sleep(interval),
-                        timeout=interval + 1,
-                    )
-                except asyncio.TimeoutError:
-                    pass
-
-                # 检查停止信号
-                if self._stop_event.is_set():
+                if not self._pause_event.is_set():
                     break
 
+                for round_i in range(rounds):
+                    if not self.running:
+                        break
+                    if not self._pause_event.is_set():
+                        break
+
+                    try:
+                        result = await self.check_project(project)
+                        await CheckerManager.save_result(result)
+                    except Exception as e:
+                        print(f"[Checker-{self.id}] 检测 {project['name']} 异常: {e}")
+
+                    # 轮内间隔
+                    if round_i < rounds - 1:
+                        await self._sleep_interruptible(config.rounds_interval_seconds)
+
+                # 项目间短暂间隔
+                if self.running and self._pause_event.is_set():
+                    await self._sleep_interruptible(random.uniform(2, 5))
+
+            # 等待下一轮巡检（使用配置的间隔）
+            if self.running and self._pause_event.is_set():
+                interval = config.get_interval_seconds()
+                await self._sleep_interruptible(interval)
+
             # 如果没有项目，等待一下避免死循环
-            if not self.projects:
-                await asyncio.sleep(60)
+            if not self.projects and self.running and self._pause_event.is_set():
+                await self._sleep_interruptible(60)
 
         self.running = False
+
+    async def _sleep_interruptible(self, seconds: float):
+        """可中断睡眠（被stop或pause时立即唤醒）"""
+        elapsed = 0
+        step = min(1.0, max(0.5, seconds / 30))
+        while elapsed < seconds and self.running and self._pause_event.is_set():
+            await asyncio.sleep(min(step, seconds - elapsed))
+            elapsed += step
 
     def stop(self):
         """停止 Checker"""
         self.running = False
         self._stop_event.set()
+        self._pause_event.set()  # 解除暂停阻塞
+
+    def pause(self):
+        """暂停 Checker（保持进程）"""
+        self._pause_event.clear()
+
+    def resume(self):
+        """恢复 Checker"""
+        self._pause_event.set()
+
+    @property
+    def paused(self) -> bool:
+        return not self._pause_event.is_set()
 
     def get_status(self) -> dict:
         """获取 Checker 运行状态"""
@@ -272,6 +314,7 @@ class Checker:
             "user_agent": self.user_agent,
             "ip_sample": self.ip_pool[0],
             "running": self.running,
+            "paused": self.paused,
             "check_count": self.check_count,
             "current_task": self.current_task,
             "last_check_time": self.last_check_time,
@@ -286,8 +329,10 @@ class CheckerManager:
     _checkers: dict[int, Checker] = {}
     _results: dict[str, list[dict]] = {}  # project_name -> [history]
     _latest: dict[str, dict] = {}  # project_name -> latest result
+    _async_latest: dict[str, dict] = {}  # 异步Checker最新结果
     _lock = asyncio.Lock()
     _initialized = False
+    _ws_clients: list = []  # WebSocket 客户端列表
 
     @classmethod
     async def initialize(cls):
@@ -295,13 +340,9 @@ class CheckerManager:
         if cls._initialized:
             return
 
-        # 确保数据目录存在
         os.makedirs(DATA_DIR, exist_ok=True)
-
-        # 加载已有结果
         await cls._load_results()
 
-        # 分配项目并创建 Checker
         assignments = assign_projects_to_checkers()
         for identity in CHECKER_IDENTITIES:
             checker = Checker(identity, assignments[identity["id"]])
@@ -319,10 +360,12 @@ class CheckerManager:
                         data = json.load(f)
                     cls._results = data.get("history", {})
                     cls._latest = data.get("latest", {})
+                    cls._async_latest = data.get("async_latest", {})
                 except Exception as e:
                     print(f"加载历史结果失败: {e}")
                     cls._results = {}
                     cls._latest = {}
+                    cls._async_latest = {}
 
     @classmethod
     async def _save_results_to_file(cls):
@@ -332,6 +375,7 @@ class CheckerManager:
                 data = {
                     "history": cls._results,
                     "latest": cls._latest,
+                    "async_latest": cls._async_latest,
                     "last_updated": datetime.now(timezone.utc).isoformat(),
                 }
                 os.makedirs(os.path.dirname(RESULTS_FILE), exist_ok=True)
@@ -342,22 +386,44 @@ class CheckerManager:
 
     @classmethod
     async def save_result(cls, result: dict):
-        """保存单次检查结果"""
+        """保存单次检查结果（同步Checker）"""
         project_name = result["project_name"]
         async with cls._lock:
             cls._latest[project_name] = result
             if project_name not in cls._results:
                 cls._results[project_name] = []
             cls._results[project_name].append(result)
-            # 限制历史记录数量
             if len(cls._results[project_name]) > HISTORY_MAX_SIZE:
                 cls._results[project_name] = cls._results[project_name][-HISTORY_MAX_SIZE:]
-        # 异步写文件（不阻塞）
         asyncio.create_task(cls._save_results_to_file())
+        # WebSocket 推送
+        await cls._ws_broadcast({
+            "type": "status_update",
+            "project": result,
+        })
+
+    @classmethod
+    async def save_async_result(cls, result: dict):
+        """保存异步Checker结果"""
+        project_name = result["project_name"]
+        async with cls._lock:
+            cls._async_latest[project_name] = result
+        # 异步Checker结果也存入主历史
+        async with cls._lock:
+            if project_name not in cls._results:
+                cls._results[project_name] = []
+            cls._results[project_name].append(result)
+            if len(cls._results[project_name]) > HISTORY_MAX_SIZE:
+                cls._results[project_name] = cls._results[project_name][-HISTORY_MAX_SIZE:]
+        asyncio.create_task(cls._save_results_to_file())
+        await cls._ws_broadcast({
+            "type": "async_status_update",
+            "project": result,
+        })
 
     @classmethod
     async def start_all(cls):
-        """启动所有 Checker"""
+        """启动所有同步 Checker"""
         await cls.initialize()
         for checker in cls._checkers.values():
             if not checker.running:
@@ -366,7 +432,7 @@ class CheckerManager:
 
     @classmethod
     async def stop_all(cls):
-        """停止所有 Checker"""
+        """停止所有同步 Checker"""
         for checker in cls._checkers.values():
             if checker.running:
                 checker.stop()
@@ -375,33 +441,43 @@ class CheckerManager:
                 print(f"[Checker-{checker.id}] {checker.name} 已停止")
 
     @classmethod
+    def pause_all(cls):
+        """暂停所有同步 Checker（保持进程）"""
+        for checker in cls._checkers.values():
+            checker.pause()
+
+    @classmethod
+    def resume_all(cls):
+        """恢复所有同步 Checker"""
+        for checker in cls._checkers.values():
+            checker.resume()
+
+    @classmethod
     def get_all_status(cls) -> dict[str, dict]:
-        """获取所有项目最新状态"""
         return cls._latest.copy()
 
     @classmethod
+    def get_async_status(cls) -> dict[str, dict]:
+        return cls._async_latest.copy()
+
+    @classmethod
     def get_project_history(cls, project_name: str) -> list[dict]:
-        """获取单个项目历史"""
-        return cls._results.get(project_name, [])[-20:]  # 最近20条
+        return cls._results.get(project_name, [])[-20:]
 
     @classmethod
     def get_all_history(cls) -> list[dict]:
-        """获取所有项目最近检查历史（最多100条）"""
         all_records = []
         for records in cls._results.values():
             all_records.extend(records)
-        # 按时间倒序
         all_records.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
         return all_records[:100]
 
     @classmethod
     def get_checkers_status(cls) -> list[dict]:
-        """获取所有 Checker 状态"""
         return [c.get_status() for c in cls._checkers.values()]
 
     @classmethod
     async def check_project_now(cls, project_name: str) -> dict | None:
-        """立即触发某个项目的检查（找负责它的 checker）"""
         await cls.initialize()
         for checker in cls._checkers.values():
             for p in checker.projects:
@@ -409,7 +485,6 @@ class CheckerManager:
                     result = await checker.check_project(p)
                     await cls.save_result(result)
                     return result
-        # 如果没找到分配的 checker，用第一个 checker 检测
         if cls._checkers:
             from config import get_project_by_name
             project = get_project_by_name(project_name)
@@ -422,13 +497,10 @@ class CheckerManager:
 
     @classmethod
     async def check_all_now(cls) -> list[dict]:
-        """立即触发所有项目检查"""
         await cls.initialize()
         results = []
-        # 并发检测
         tasks = []
         for project in PROJECTS:
-            # 找负责的 checker
             assigned = False
             for checker in cls._checkers.values():
                 for p in checker.projects:
@@ -439,7 +511,6 @@ class CheckerManager:
                 if assigned:
                     break
             if not assigned and cls._checkers:
-                # 兜底
                 checker = list(cls._checkers.values())[0]
                 tasks.append(checker.check_project(project))
 
@@ -453,7 +524,6 @@ class CheckerManager:
 
     @classmethod
     def get_summary(cls) -> dict:
-        """获取总览统计"""
         latest = cls._latest
         online = sum(1 for r in latest.values() if r.get("status") == "online")
         offline = sum(1 for r in latest.values() if r.get("status") == "offline")
@@ -479,3 +549,46 @@ class CheckerManager:
             "avg_response_time_ms": avg_response_time,
             "last_check_time": last_check,
         }
+
+    # ===== WebSocket 相关 =====
+    @classmethod
+    async def add_ws_client(cls, websocket):
+        cls._ws_clients.append(websocket)
+
+    @classmethod
+    async def remove_ws_client(cls, websocket):
+        if websocket in cls._ws_clients:
+            cls._ws_clients.remove(websocket)
+
+    @classmethod
+    async def _ws_broadcast(cls, message: dict):
+        """广播消息到所有WebSocket客户端"""
+        if not cls._ws_clients:
+            return
+        import json as _json
+        msg_text = _json.dumps(message, ensure_ascii=False)
+        dead_clients = []
+        for ws in cls._ws_clients:
+            try:
+                await ws.send_text(msg_text)
+            except Exception:
+                dead_clients.append(ws)
+        for ws in dead_clients:
+            if ws in cls._ws_clients:
+                cls._ws_clients.remove(ws)
+
+    @classmethod
+    async def ws_broadcast_config(cls, config: dict):
+        """广播配置变更"""
+        await cls._ws_broadcast({
+            "type": "config_update",
+            "config": config,
+        })
+
+    @classmethod
+    async def ws_broadcast_control(cls, action: str):
+        """广播控制指令"""
+        await cls._ws_broadcast({
+            "type": "control",
+            "action": action,
+        })

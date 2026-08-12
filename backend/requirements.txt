@@ -5,3 +5,4 @@ aiohttp==3.9.5
 certifi==2024.6.2
 pydantic==2.7.4
 python-multipart==0.0.9
+websockets==12.0

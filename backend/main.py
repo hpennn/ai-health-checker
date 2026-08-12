@@ -1,17 +1,23 @@
-"""FastAPI 主服务 - 端口 8700"""
+"""FastAPI 主服务 - 端口 8700
+支持：10个同步Checker + N个异步Checker（搜索词模式）、巡检控制、时间段、动态配置、WebSocket推送
+"""
 import os
 import sys
+import asyncio
 from contextlib import asynccontextmanager
+from datetime import datetime
+
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 # 确保 backend 目录在路径中
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
-
 from checker import CheckerManager
-from config import PROJECTS
+from async_checker import AsyncCheckerManager
+from config import PROJECTS, RuntimeConfig, get_project_by_name
 
 # 前端 HTML 文件路径
 FRONTEND_PATH = os.path.join(
@@ -21,23 +27,110 @@ FRONTEND_PATH = os.path.join(
 )
 
 
+# ========== 请求模型 ==========
+class ControlRequest(BaseModel):
+    action: str  # start / stop
+
+
+class ConfigUpdateRequest(BaseModel):
+    inspection_enabled: bool | None = None
+    time_range: dict | None = None
+    interval_minutes: int | None = None
+    rounds_per_inspection: int | None = None
+    rounds_interval_seconds: int | None = None
+    async_checker_count: int | None = None
+    search_engine: str | None = None
+    project_search_keywords: dict | None = None
+
+
+# ========== 全局任务 ==========
+_time_range_task = None
+
+
+async def time_range_monitor():
+    """时间段监控任务 - 根据时间段自动启停巡检"""
+    config = RuntimeConfig.get_instance()
+    last_state = None
+    while True:
+        try:
+            now_in_range = config.is_within_time_range()
+            # 只有用户启用了总开关时才受时间段控制
+            target_paused = not (config.inspection_enabled and now_in_range)
+
+            if last_state is None or target_paused != last_state:
+                if target_paused:
+                    CheckerManager.pause_all()
+                    AsyncCheckerManager.pause_all()
+                    print(f"[TimeRange] 巡检已暂停（当前不在巡检时间段内或总开关关闭）")
+                else:
+                    CheckerManager.resume_all()
+                    AsyncCheckerManager.resume_all()
+                    print(f"[TimeRange] 巡检已恢复（进入巡检时间段）")
+                await CheckerManager.ws_broadcast_control("pause" if target_paused else "resume")
+                last_state = target_paused
+        except Exception as e:
+            print(f"[TimeRange] 监控异常: {e}")
+
+        await asyncio.sleep(30)  # 每30秒检查一次
+
+
+async def on_config_change(changed_keys: set):
+    """配置变更回调"""
+    print(f"[Config] 配置变更: {changed_keys}")
+
+    # 异步Checker数量变更
+    if "async_checker_count" in changed_keys:
+        config = RuntimeConfig.get_instance()
+        await AsyncCheckerManager.set_count(config.async_checker_count)
+
+    # 推送配置变更
+    config = RuntimeConfig.get_instance()
+    await CheckerManager.ws_broadcast_config(config.to_dict())
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """应用生命周期 - 启动/停止 Checker"""
-    # 启动所有 Checker
+    """应用生命周期"""
+    # 加载配置
+    config = RuntimeConfig.get_instance()
+    await config.load()
+    config.register_listener(on_config_change)
+
+    # 启动同步Checker
     await CheckerManager.initialize()
     await CheckerManager.start_all()
+
+    # 启动异步Checker
+    await AsyncCheckerManager.initialize()
+    await AsyncCheckerManager.start_all()
+
+    # 根据初始配置和时间段决定是否暂停
+    if not config.inspection_enabled or not config.is_within_time_range():
+        CheckerManager.pause_all()
+        AsyncCheckerManager.pause_all()
+        print("[Lifespan] 初始状态：巡检暂停（总开关关闭或不在时间段内）")
+    else:
+        print("[Lifespan] 初始状态：巡检运行中")
+
+    # 启动时间段监控
+    global _time_range_task
+    _time_range_task = asyncio.create_task(time_range_monitor())
+
     print("所有 Checker 已启动")
     yield
-    # 停止所有 Checker
+
+    # 清理
+    if _time_range_task:
+        _time_range_task.cancel()
     await CheckerManager.stop_all()
+    await AsyncCheckerManager.stop_all()
     print("所有 Checker 已停止")
 
 
 app = FastAPI(
     title="AI Health Checker",
-    description="多站点健康检测系统 - 10个Checker子Agent模拟不同IP自动检测",
-    version="1.0.0",
+    description="多站点健康检测系统 - 同步Checker + 异步搜索Checker",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
@@ -51,25 +144,27 @@ app.add_middleware(
 )
 
 
+# ========== 前端页面 ==========
 @app.get("/", response_class=HTMLResponse)
 async def get_dashboard():
-    """返回监控面板"""
     if os.path.exists(FRONTEND_PATH):
         with open(FRONTEND_PATH, "r", encoding="utf-8") as f:
             return HTMLResponse(content=f.read())
     return HTMLResponse(content="<h1>Loading...</h1>")
 
 
+# ========== 状态 API ==========
 @app.get("/api/status")
 async def get_all_status():
     """获取所有项目当前状态"""
     status = CheckerManager.get_all_status()
+    async_status = CheckerManager.get_async_status()
     summary = CheckerManager.get_summary()
+    config = RuntimeConfig.get_instance()
 
-    # 补充未检测的项目
     all_projects = {}
     for p in PROJECTS:
-        all_projects[p["name"]] = status.get(
+        base = status.get(
             p["name"],
             {
                 "project_name": p["name"],
@@ -82,18 +177,19 @@ async def get_all_status():
                 "timestamp": None,
             },
         )
+        all_projects[p["name"]] = base
 
     return {
         "summary": summary,
         "projects": all_projects,
+        "async_projects": async_status,
+        "inspection_enabled": config.inspection_enabled,
+        "within_time_range": config.is_within_time_range(),
     }
 
 
 @app.get("/api/status/{project_name}")
 async def get_project_status(project_name: str):
-    """获取单个项目详情和历史"""
-    from config import get_project_by_name
-
     project = get_project_by_name(project_name)
     if not project:
         raise HTTPException(status_code=404, detail="项目不存在")
@@ -111,9 +207,6 @@ async def get_project_status(project_name: str):
 
 @app.post("/api/check/{project_name}")
 async def check_project_now(project_name: str):
-    """立即触发检查某个项目"""
-    from config import get_project_by_name
-
     project = get_project_by_name(project_name)
     if not project:
         raise HTTPException(status_code=404, detail="项目不存在")
@@ -127,7 +220,6 @@ async def check_project_now(project_name: str):
 
 @app.post("/api/check-all")
 async def check_all_now():
-    """立即触发全部检查"""
     results = await CheckerManager.check_all_now()
     return {
         "message": f"已完成 {len(results)} 个项目的检查",
@@ -138,22 +230,155 @@ async def check_all_now():
 
 @app.get("/api/history")
 async def get_history():
-    """获取检查历史（最近100条）"""
     history = CheckerManager.get_all_history()
     return {"total": len(history), "records": history}
 
 
 @app.get("/api/agents")
 async def get_agents():
-    """获取10个Checker的运行状态"""
     agents = CheckerManager.get_checkers_status()
     return {"total": len(agents), "agents": agents}
 
 
+# ========== 巡检控制 API ==========
+@app.post("/api/control")
+async def control_inspection(req: ControlRequest):
+    """启停巡检总开关"""
+    config = RuntimeConfig.get_instance()
+
+    if req.action == "start":
+        result = await config.update({"inspection_enabled": True})
+        # 只有同时在时间段内才真正恢复
+        if config.is_within_time_range():
+            CheckerManager.resume_all()
+            AsyncCheckerManager.resume_all()
+        await CheckerManager.ws_broadcast_control("start")
+        return {"message": "巡检已启动", "enabled": True, "config": config.to_dict()}
+
+    elif req.action == "stop":
+        result = await config.update({"inspection_enabled": False})
+        CheckerManager.pause_all()
+        AsyncCheckerManager.pause_all()
+        await CheckerManager.ws_broadcast_control("stop")
+        return {"message": "巡检已停止", "enabled": False, "config": config.to_dict()}
+
+    else:
+        raise HTTPException(status_code=400, detail=f"未知操作: {req.action}")
+
+
+# ========== 配置 API ==========
+@app.get("/api/config")
+async def get_config():
+    """获取当前配置"""
+    config = RuntimeConfig.get_instance()
+    return config.to_dict()
+
+
+@app.post("/api/config")
+async def update_config(req: ConfigUpdateRequest):
+    """更新配置"""
+    config = RuntimeConfig.get_instance()
+    update_dict = {}
+
+    if req.inspection_enabled is not None:
+        update_dict["inspection_enabled"] = req.inspection_enabled
+
+    if req.time_range is not None:
+        update_dict["time_range"] = req.time_range
+
+    if req.interval_minutes is not None:
+        update_dict["interval_minutes"] = req.interval_minutes
+
+    if req.rounds_per_inspection is not None:
+        update_dict["rounds_per_inspection"] = req.rounds_per_inspection
+
+    if req.rounds_interval_seconds is not None:
+        update_dict["rounds_interval_seconds"] = req.rounds_interval_seconds
+
+    if req.async_checker_count is not None:
+        update_dict["async_checker_count"] = req.async_checker_count
+
+    if req.search_engine is not None:
+        update_dict["search_engine"] = req.search_engine
+
+    if req.project_search_keywords is not None:
+        update_dict["project_search_keywords"] = req.project_search_keywords
+
+    if not update_dict:
+        return {"message": "无配置更新", "config": config.to_dict(), "changed": []}
+
+    result = await config.update(update_dict)
+
+    # 处理启停
+    if "inspection_enabled" in result["changed"]:
+        if config.inspection_enabled and config.is_within_time_range():
+            CheckerManager.resume_all()
+            AsyncCheckerManager.resume_all()
+        elif not config.inspection_enabled:
+            CheckerManager.pause_all()
+            AsyncCheckerManager.pause_all()
+
+    # 时间段变更后检查
+    if "time_range" in result["changed"]:
+        if config.inspection_enabled:
+            if config.is_within_time_range():
+                CheckerManager.resume_all()
+                AsyncCheckerManager.resume_all()
+            else:
+                CheckerManager.pause_all()
+                AsyncCheckerManager.pause_all()
+
+    return {
+        "message": "配置已更新",
+        "changed": result["changed"],
+        "config": result["config"],
+    }
+
+
+# ========== 异步 Checker API ==========
+@app.get("/api/async-checkers")
+async def get_async_checkers():
+    """获取异步Checker状态"""
+    checkers = AsyncCheckerManager.get_checkers_status()
+    async_status = CheckerManager.get_async_status()
+    return {
+        "total": len(checkers),
+        "checkers": checkers,
+        "latest": async_status,
+    }
+
+
+# ========== WebSocket ==========
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    await CheckerManager.add_ws_client(websocket)
+
+    # 初始推送当前配置和状态
+    config = RuntimeConfig.get_instance()
+    await websocket.send_json({
+        "type": "config_update",
+        "config": config.to_dict(),
+    })
+
+    try:
+        while True:
+            # 接收客户端消息（心跳等）
+            data = await websocket.receive_text()
+            if data == "ping":
+                await websocket.send_text("pong")
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        print(f"[WebSocket] 异常: {e}")
+    finally:
+        await CheckerManager.remove_ws_client(websocket)
+
+
+# ========== 健康检查 ==========
 @app.get("/api/health")
 async def health_check():
-    """服务健康检查"""
-    return {"status": "ok", "service": "ai-health-checker"}
+    return {"status": "ok", "service": "ai-health-checker", "version": "2.0.0"}
 
 
 if __name__ == "__main__":
