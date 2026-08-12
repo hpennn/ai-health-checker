@@ -30,7 +30,8 @@ PROJECTS = [
 REQUEST_TIMEOUT = 10      # 请求超时时间（秒）
 SLOW_THRESHOLD = 5        # 慢响应阈值（秒）
 HISTORY_MAX_SIZE = 100    # 每个项目历史记录最大条数
-DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+_this_dir = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(_this_dir, "data")
 RESULTS_FILE = os.path.join(DATA_DIR, "check_results.json")
 CONFIG_FILE = os.path.join(DATA_DIR, "config.json")
 
