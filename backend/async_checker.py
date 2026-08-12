@@ -4,6 +4,7 @@ import json
 import re
 import time
 import random
+import logging
 from datetime import datetime, timezone
 from urllib.parse import quote, urlparse
 
@@ -17,7 +18,6 @@ from config import (
     get_random_ip,
 )
 
-
 # 每个异步Checker的独立IP池
 def _gen_async_ip_pool(base_id: int) -> list:
     """生成异步Checker的IP池"""
@@ -29,6 +29,11 @@ def _gen_async_ip_pool(base_id: int) -> list:
         50 + (base_id * 29) % 200,
     ]
     return [f"{100 + base_id}.{octets[i % 5]}.{octets[(i+2) % 5]}.{octets[(i+3) % 5]}" for i in range(5)]
+
+
+# 异步Checker结果历史（定期清理，防止内存无限增长）
+ASYNC_RESULT_MAX_AGE_SECONDS = 3600 * 2  # 异步结果保留2小时
+ASYNC_RESULT_MAX_PER_PROJECT = 20  # 每项目最多保留20条
 
 
 class AsyncChecker:
@@ -46,6 +51,7 @@ class AsyncChecker:
         self.running = False
         self.task = None
         self.check_count = 0
+        self.failed_count = 0  # 失败计数
         self.current_task = "空闲"
         self.last_check_time = None
         self._stop_event = asyncio.Event()
@@ -55,6 +61,10 @@ class AsyncChecker:
         # 导入运行时配置（延迟导入避免循环引用）
         from config import RuntimeConfig
         self._config = RuntimeConfig.get_instance()
+
+        # 搜索重试配置
+        self._search_max_retries = 2  # 最多重试2次（总共3次尝试）
+        self._search_retry_delay = 2  # 重试间隔（秒）
 
     def _build_headers(self, referer: str = "") -> dict:
         ip = get_random_ip(self.ip_pool)
@@ -103,7 +113,9 @@ class AsyncChecker:
 
             return results[:10]
         except Exception as e:
-            print(f"[AsyncChecker-{self.id}] 百度搜索失败: {e}")
+            logging.getLogger("health_checker").warning(
+                f"[AsyncChecker-{self.id}] 百度搜索 '{keyword}' 失败: {e}"
+            )
             return []
 
     async def _search_bing(self, keyword: str, client: httpx.AsyncClient) -> list[dict]:
@@ -129,7 +141,9 @@ class AsyncChecker:
 
             return results[:10]
         except Exception as e:
-            print(f"[AsyncChecker-{self.id}] 必应搜索失败: {e}")
+            logging.getLogger("health_checker").warning(
+                f"[AsyncChecker-{self.id}] 必应搜索 '{keyword}' 失败: {e}"
+            )
             return []
 
     async def _search_google(self, keyword: str, client: httpx.AsyncClient) -> list[dict]:
@@ -158,24 +172,53 @@ class AsyncChecker:
 
             return results[:10]
         except Exception as e:
-            print(f"[AsyncChecker-{self.id}] Google搜索失败: {e}")
+            logging.getLogger("health_checker").warning(
+                f"[AsyncChecker-{self.id}] Google搜索 '{keyword}' 失败: {e}"
+            )
             return []
 
     async def search(self, keyword: str, engine: str = "baidu") -> list[dict]:
-        """执行搜索引擎搜索"""
-        async with httpx.AsyncClient(
-            follow_redirects=True,
-            verify=True,
-            timeout=REQUEST_TIMEOUT,
-        ) as client:
-            if engine == "baidu":
-                return await self._search_baidu(keyword, client)
-            elif engine == "bing":
-                return await self._search_bing(keyword, client)
-            elif engine == "google":
-                return await self._search_google(keyword, client)
-            else:
-                return await self._search_baidu(keyword, client)
+        """执行搜索引擎搜索（带重试机制）"""
+        last_error = None
+
+        for attempt in range(self._search_max_retries + 1):
+            try:
+                async with httpx.AsyncClient(
+                    follow_redirects=True,
+                    verify=True,
+                    timeout=REQUEST_TIMEOUT,
+                ) as client:
+                    if engine == "baidu":
+                        results = await self._search_baidu(keyword, client)
+                    elif engine == "bing":
+                        results = await self._search_bing(keyword, client)
+                    elif engine == "google":
+                        results = await self._search_google(keyword, client)
+                    else:
+                        results = await self._search_baidu(keyword, client)
+
+                if results:
+                    if attempt > 0:
+                        logging.getLogger("health_checker").info(
+                            f"[AsyncChecker-{self.id}] 搜索 '{keyword}' 第{attempt+1}次尝试成功，"
+                            f"返回{len(results)}条结果"
+                        )
+                    return results
+                else:
+                    last_error = f"搜索无结果（{engine}）"
+            except Exception as e:
+                last_error = str(e)
+
+            if attempt < self._search_max_retries:
+                # 重试前等待（指数退避）
+                delay = self._search_retry_delay * (2 ** attempt)
+                await asyncio.sleep(delay)
+
+        if last_error:
+            logging.getLogger("health_checker").warning(
+                f"[AsyncChecker-{self.id}] 搜索 '{keyword}' 失败（重试{self._search_max_retries}次后仍无结果）: {last_error}"
+            )
+        return []
 
     def _match_target_url(self, search_results: list[dict], target_url: str) -> dict | None:
         """从搜索结果中匹配目标网站的链接（优先匹配域名）"""
@@ -232,7 +275,7 @@ class AsyncChecker:
         except httpx.TimeoutException:
             elapsed = time.time() - start_time
             result["response_time_ms"] = round(elapsed * 1000, 2)
-            result["error"] = "请求超时"
+            result["error"] = "请求超时（超过10秒）"
         except httpx.ConnectError as e:
             elapsed = time.time() - start_time
             result["response_time_ms"] = round(elapsed * 1000, 2)
@@ -263,7 +306,10 @@ class AsyncChecker:
             "search_keyword": "",
             "search_engine": self._config.search_engine,
             "search_result_count": 0,
+            "search_attempts": 0,  # 搜索尝试次数
             "clicked_url": "",
+            "clicked_title": "",  # 点击的搜索结果标题
+            "matched_target": False,  # 是否匹配到目标域名
             "content_check": {},
             "error": None,
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -277,13 +323,15 @@ class AsyncChecker:
         result["search_keyword"] = keyword
 
         try:
-            # 第一步：搜索引擎搜索
+            # 第一步：搜索引擎搜索（带重试）
             search_results = await self.search(keyword, self._config.search_engine)
             result["search_result_count"] = len(search_results)
+            result["search_attempts"] = self._search_max_retries + 1
 
             if not search_results:
                 result["status"] = "offline"
-                result["error"] = f"搜索引擎未返回结果 ({self._config.search_engine})"
+                result["error"] = f"搜索引擎未返回结果（{self._config.search_engine}），已重试{self._search_max_retries}次"
+                self.failed_count += 1
                 self.check_count += 1
                 self.last_check_time = datetime.now(timezone.utc).isoformat()
                 self.current_task = "空闲"
@@ -295,9 +343,13 @@ class AsyncChecker:
                 # 没匹配到目标网站，访问第一个结果
                 matched = search_results[0]
                 result["error"] = "搜索结果中未匹配到目标域名，已访问首条结果"
+                result["matched_target"] = False
+            else:
+                result["matched_target"] = True
 
             click_url = matched["url"]
             result["clicked_url"] = click_url
+            result["clicked_title"] = matched.get("title", "")[:100]
 
             # 第三步：访问目标页面（带搜索来源Referer）
             search_url_map = {
@@ -326,6 +378,7 @@ class AsyncChecker:
             if visit_result["error"]:
                 result["status"] = "offline"
                 result["error"] = visit_result["error"]
+                self.failed_count += 1
             elif visit_result["status_code"] == 200:
                 if visit_result["response_time_ms"] and visit_result["response_time_ms"] > SLOW_THRESHOLD * 1000:
                     result["status"] = "slow"
@@ -333,10 +386,15 @@ class AsyncChecker:
                     result["status"] = "online"
             else:
                 result["status"] = "offline"
+                self.failed_count += 1
 
         except Exception as e:
             result["status"] = "offline"
             result["error"] = f"搜索访问异常: {str(e)[:80]}"
+            self.failed_count += 1
+            logging.getLogger("health_checker").error(
+                f"[AsyncChecker-{self.id}] {project['name']} 检测异常: {e}"
+            )
 
         self.check_count += 1
         self.last_check_time = datetime.now(timezone.utc).isoformat()
@@ -349,6 +407,9 @@ class AsyncChecker:
         self.running = True
         self._stop_event.clear()
         self._pause_event.set()
+        logging.getLogger("health_checker").info(
+            f"[AsyncChecker-{self.id}] {self.name} 启动，设备类型: {self.type}"
+        )
 
         while self.running:
             # 检查是否需要暂停
@@ -363,8 +424,8 @@ class AsyncChecker:
                 if not self._pause_event.is_set():
                     break
 
-                # 多轮检测（每轮检查 rounds_per_inspection 次）
-                rounds = max(1, min(10, self._config.rounds_per_inspection))
+                # 多轮检测（每轮检查 rounds 次）
+                rounds = max(1, min(10, self._config.rounds_min))  # 使用 rounds_min
                 for round_i in range(rounds):
                     if not self.running:
                         break
@@ -376,7 +437,9 @@ class AsyncChecker:
                         from checker import CheckerManager
                         await CheckerManager.save_async_result(result)
                     except Exception as e:
-                        print(f"[AsyncChecker-{self.id}] 检测 {project['name']} 异常: {e}")
+                        logging.getLogger("health_checker").error(
+                            f"[AsyncChecker-{self.id}] 检测 {project['name']} 异常: {e}"
+                        )
 
                     # 轮内间隔
                     if round_i < rounds - 1:
@@ -392,6 +455,9 @@ class AsyncChecker:
                 interval = self._config.get_interval_seconds()
                 await self._sleep_interruptible(interval)
 
+        logging.getLogger("health_checker").info(
+            f"[AsyncChecker-{self.id}] {self.name} 已停止"
+        )
         self.running = False
 
     async def _sleep_interruptible(self, seconds: float):
@@ -437,6 +503,7 @@ class AsyncChecker:
             "running": self.running,
             "paused": self.paused,
             "check_count": self.check_count,
+            "failed_count": self.failed_count,
             "current_task": self.current_task,
             "last_check_time": self.last_check_time,
             "project_count": len(self.projects),
@@ -453,6 +520,7 @@ class AsyncCheckerManager:
     _latest: dict[str, dict] = {}
     _lock = asyncio.Lock()
     _next_id = 100  # 异步Checker ID 从100开始，避免与同步Checker冲突
+    _cleanup_task = None  # 定期清理任务
 
     @classmethod
     async def initialize(cls):
@@ -460,7 +528,39 @@ class AsyncCheckerManager:
         from config import RuntimeConfig
         config = RuntimeConfig.get_instance()
         await cls._adjust_checkers(config.async_checker_count)
-        print(f"[AsyncCheckerManager] 已初始化，异步Checker数量: {len(cls._checkers)}")
+
+        # 启动定期清理任务
+        if cls._cleanup_task is None or cls._cleanup_task.done():
+            cls._cleanup_task = asyncio.create_task(cls._periodic_cleanup())
+
+        logging.getLogger("health_checker").info(
+            f"[AsyncCheckerManager] 初始化完成，异步Checker数量: {len(cls._checkers)}"
+        )
+
+    @classmethod
+    async def _periodic_cleanup(cls):
+        """定期清理过期的异步Checker结果，防止内存泄漏"""
+        while True:
+            try:
+                await asyncio.sleep(300)  # 每5分钟清理一次
+                cleaned = 0
+                async with cls._lock:
+                    for project_name in list(cls._results.keys()):
+                        # 保留最近N条
+                        if len(cls._results[project_name]) > ASYNC_RESULT_MAX_PER_PROJECT:
+                            old_count = len(cls._results[project_name])
+                            cls._results[project_name] = cls._results[project_name][-ASYNC_RESULT_MAX_PER_PROJECT:]
+                            cleaned += old_count - len(cls._results[project_name])
+                if cleaned > 0:
+                    logging.getLogger("health_checker").debug(
+                        f"[AsyncCheckerManager] 清理了 {cleaned} 条过期异步结果"
+                    )
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logging.getLogger("health_checker").error(
+                    f"[AsyncCheckerManager] 定期清理任务异常: {e}"
+                )
 
     @classmethod
     async def _adjust_checkers(cls, target_count: int):
@@ -481,7 +581,9 @@ class AsyncCheckerManager:
                 checker = AsyncChecker(checker_id, assigned_projects)
                 cls._checkers[checker_id] = checker
                 checker.task = asyncio.create_task(checker.run_loop())
-                print(f"[AsyncCheckerManager] 新增异步Checker #{checker_id}")
+                logging.getLogger("health_checker").info(
+                    f"[AsyncCheckerManager] 新增异步Checker #{checker_id}"
+                )
         else:
             # 减少（从最后一个开始删）
             ids_sorted = sorted(cls._checkers.keys(), reverse=True)
@@ -491,7 +593,9 @@ class AsyncCheckerManager:
                 checker.stop()
                 if checker.task:
                     checker.task.cancel()
-                print(f"[AsyncCheckerManager] 移除异步Checker #{cid}")
+                logging.getLogger("health_checker").info(
+                    f"[AsyncCheckerManager] 移除异步Checker #{cid}"
+                )
 
         # 重新分配项目（尽量均匀）
         await cls._redistribute_projects()
@@ -527,6 +631,8 @@ class AsyncCheckerManager:
     @classmethod
     async def stop_all(cls):
         """停止所有异步Checker"""
+        if cls._cleanup_task:
+            cls._cleanup_task.cancel()
         for checker in cls._checkers.values():
             if checker.running:
                 checker.stop()
@@ -556,3 +662,8 @@ class AsyncCheckerManager:
     @classmethod
     def get_count(cls) -> int:
         return len(cls._checkers)
+
+    @classmethod
+    def get_running_count(cls) -> int:
+        """获取运行中的异步Checker数量"""
+        return sum(1 for c in cls._checkers.values() if c.running and not c.paused)

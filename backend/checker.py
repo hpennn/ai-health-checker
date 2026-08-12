@@ -6,6 +6,7 @@ import ssl
 import time
 import random
 import re
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
@@ -22,6 +23,34 @@ from config import (
     get_random_ip,
     assign_projects_to_checkers,
 )
+
+# ========== 日志配置 ==========
+LOG_FILE = os.path.join(DATA_DIR, "checker.log")
+
+def _setup_logger():
+    """设置文件日志"""
+    os.makedirs(DATA_DIR, exist_ok=True)
+    logger = logging.getLogger("health_checker")
+    logger.setLevel(logging.INFO)
+    # 避免重复添加handler
+    if logger.handlers:
+        return logger
+    fh = logging.FileHandler(LOG_FILE, encoding="utf-8")
+    fh.setLevel(logging.INFO)
+    formatter = logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)
+    # 同时输出到控制台
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.INFO)
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
+    return logger
+
+logger = _setup_logger()
 
 
 class Checker:
@@ -202,17 +231,20 @@ class Checker:
             elapsed = time.time() - start_time
             result["status"] = "offline"
             result["response_time_ms"] = round(elapsed * 1000, 2)
-            result["error"] = "请求超时"
+            result["error"] = "请求超时（超过10秒）"
+            logger.warning(f"[Checker-{self.id}] {project['name']} 请求超时")
         except httpx.ConnectError as e:
             elapsed = time.time() - start_time
             result["status"] = "offline"
             result["response_time_ms"] = round(elapsed * 1000, 2)
             result["error"] = f"连接失败: {str(e)[:80]}"
+            logger.warning(f"[Checker-{self.id}] {project['name']} 连接失败: {e}")
         except Exception as e:
             elapsed = time.time() - start_time
             result["status"] = "offline"
             result["response_time_ms"] = round(elapsed * 1000, 2)
             result["error"] = f"未知错误: {str(e)[:80]}"
+            logger.error(f"[Checker-{self.id}] {project['name']} 检测异常: {e}")
 
         if url.startswith("https://"):
             result["ssl_check"] = await self._check_ssl(url)
@@ -223,6 +255,13 @@ class Checker:
         self.last_check_time = datetime.now(timezone.utc).isoformat()
         self.current_task = "空闲"
 
+        # 状态变更时记录日志
+        prev = CheckerManager._latest.get(project["name"], {})
+        prev_status = prev.get("status")
+        if prev_status and prev_status != result["status"]:
+            logger.info(f"[状态变更] {project['name']}: {prev_status} → {result['status']} "
+                        f"(响应时间: {result['response_time_ms']}ms)")
+
         return result
 
     async def run_loop(self):
@@ -232,6 +271,7 @@ class Checker:
         self._pause_event.set()
 
         config = self._get_config()
+        logger.info(f"[Checker-{self.id}] {self.name} 启动，负责 {len(self.projects)} 个项目")
 
         while self.running:
             # 等待暂停解除
@@ -269,7 +309,7 @@ class Checker:
                         result = await self.check_project(project)
                         await CheckerManager.save_result(result)
                     except Exception as e:
-                        print(f"[Checker-{self.id}] 检测 {project['name']} 异常: {e}")
+                        logger.error(f"[Checker-{self.id}] 检测 {project['name']} 异常: {e}")
 
                     # 轮内间隔
                     if round_i < rounds - 1:
@@ -288,6 +328,7 @@ class Checker:
             if not self.projects and self.running and self._pause_event.is_set():
                 await self._sleep_interruptible(60)
 
+        logger.info(f"[Checker-{self.id}] {self.name} 已停止")
         self.running = False
 
     async def _sleep_interruptible(self, seconds: float):
@@ -344,12 +385,17 @@ class CheckerManager:
     _lock = asyncio.Lock()
     _initialized = False
     _ws_clients: list = []  # WebSocket 客户端列表
+    _start_time = None  # 服务启动时间
 
     # ===== 总巡检次数追踪 =====
     _inspection_count = 0  # 今日已完成的完整巡检轮数
     _inspection_count_date = None  # 当前计数对应的日期（YYYY-MM-DD）
     _daily_inspection_limit = 0  # 今日总巡检上限（0=不限）
     _next_interval_minutes = None  # 下一次间隔的随机值（分钟，供前端显示）
+
+    # ===== 实时日志（供前端展示）=====
+    _recent_logs: list[dict] = []
+    _max_recent_logs = 100
 
     @classmethod
     async def initialize(cls):
@@ -359,6 +405,7 @@ class CheckerManager:
 
         os.makedirs(DATA_DIR, exist_ok=True)
         await cls._load_results()
+        cls._start_time = datetime.now(timezone.utc)
 
         assignments = assign_projects_to_checkers()
         for identity in CHECKER_IDENTITIES:
@@ -366,6 +413,7 @@ class CheckerManager:
             cls._checkers[checker.id] = checker
 
         cls._initialized = True
+        logger.info("[CheckerManager] 初始化完成，共 %d 个同步Checker", len(cls._checkers))
 
     @classmethod
     async def _load_results(cls):
@@ -378,8 +426,9 @@ class CheckerManager:
                     cls._results = data.get("history", {})
                     cls._latest = data.get("latest", {})
                     cls._async_latest = data.get("async_latest", {})
+                    logger.info(f"[CheckerManager] 已加载历史结果，共 {len(cls._latest)} 个项目")
                 except Exception as e:
-                    print(f"加载历史结果失败: {e}")
+                    logger.error(f"[CheckerManager] 加载历史结果失败: {e}")
                     cls._results = {}
                     cls._latest = {}
                     cls._async_latest = {}
@@ -399,7 +448,24 @@ class CheckerManager:
                 with open(RESULTS_FILE, "w", encoding="utf-8") as f:
                     json.dump(data, f, ensure_ascii=False, indent=2)
             except Exception as e:
-                print(f"保存结果失败: {e}")
+                logger.error(f"[CheckerManager] 保存结果失败: {e}")
+
+    @classmethod
+    def _add_log(cls, level: str, message: str):
+        """添加实时日志（供前端展示）"""
+        log_entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "level": level,
+            "message": message,
+        }
+        cls._recent_logs.append(log_entry)
+        if len(cls._recent_logs) > cls._max_recent_logs:
+            cls._recent_logs = cls._recent_logs[-cls._max_recent_logs:]
+
+    @classmethod
+    def get_recent_logs(cls) -> list[dict]:
+        """获取最近的日志"""
+        return list(cls._recent_logs[-50:])
 
     @classmethod
     async def save_result(cls, result: dict):
@@ -418,6 +484,12 @@ class CheckerManager:
             "type": "status_update",
             "project": result,
         })
+        # 添加实时日志
+        cls._add_log(
+            "info" if result["status"] == "online" else "warning",
+            f"#{result.get('checker_id', '?')} 检测 {project_name}: {result['status']} "
+            f"({result.get('response_time_ms', 0)}ms)"
+        )
 
     @classmethod
     async def save_async_result(cls, result: dict):
@@ -437,6 +509,13 @@ class CheckerManager:
             "type": "async_status_update",
             "project": result,
         })
+        # 添加实时日志
+        detail = f"关键词={result.get('search_keyword', '?')}, " \
+                 f"结果数={result.get('search_result_count', 0)}"
+        cls._add_log(
+            "info" if result["status"] == "online" else "warning",
+            f"[异步] {project_name}: {result['status']} ({detail})"
+        )
 
     @classmethod
     async def start_all(cls):
@@ -445,7 +524,6 @@ class CheckerManager:
         for checker in cls._checkers.values():
             if not checker.running:
                 checker.task = asyncio.create_task(checker.run_loop())
-                print(f"[Checker-{checker.id}] {checker.name} 已启动，负责 {len(checker.projects)} 个项目")
 
     @classmethod
     async def stop_all(cls):
@@ -455,19 +533,20 @@ class CheckerManager:
                 checker.stop()
                 if checker.task:
                     checker.task.cancel()
-                print(f"[Checker-{checker.id}] {checker.name} 已停止")
 
     @classmethod
     def pause_all(cls):
         """暂停所有同步 Checker（保持进程）"""
         for checker in cls._checkers.values():
             checker.pause()
+        cls._add_log("info", "所有同步Checker已暂停")
 
     @classmethod
     def resume_all(cls):
         """恢复所有同步 Checker"""
         for checker in cls._checkers.values():
             checker.resume()
+        cls._add_log("info", "所有同步Checker已恢复运行")
 
     @classmethod
     def get_all_status(cls) -> dict[str, dict]:
@@ -551,7 +630,7 @@ class CheckerManager:
             from config import RuntimeConfig
             config = RuntimeConfig.get_instance()
             cls._daily_inspection_limit = config.get_random_total_inspections()
-            print(f"[CheckerManager] 每日巡检计数已重置。今日上限: {cls._daily_inspection_limit or '不限'}")
+            logger.info(f"[CheckerManager] 每日巡检计数已重置。今日上限: {cls._daily_inspection_limit or '不限'}")
 
     @classmethod
     def can_run_inspection(cls) -> bool:
@@ -566,7 +645,8 @@ class CheckerManager:
         """增加一次完整巡检计数（由第一个checker调用）"""
         cls._ensure_daily_reset()
         cls._inspection_count += 1
-        print(f"[CheckerManager] 今日已完成第 {cls._inspection_count} 轮巡检（上限: {cls._daily_inspection_limit or '不限'}）")
+        logger.info(f"[CheckerManager] 今日已完成第 {cls._inspection_count} 轮巡检"
+                    f"（上限: {cls._daily_inspection_limit or '不限'}）")
 
     @classmethod
     def get_inspection_stats(cls) -> dict:
@@ -612,6 +692,78 @@ class CheckerManager:
             "last_check_time": last_check,
         }
 
+    @classmethod
+    def get_checker_workload(cls) -> dict[int, dict]:
+        """获取各Checker的工作量分布"""
+        workload = {}
+        for checker in cls._checkers.values():
+            workload[checker.id] = {
+                "name": checker.name,
+                "check_count": checker.check_count,
+                "project_count": len(checker.projects),
+                "running": checker.running and not checker.paused,
+            }
+        return workload
+
+    # ===== 健康检查相关 =====
+    @classmethod
+    def get_health_info(cls) -> dict:
+        """获取服务健康信息"""
+        import psutil  # 延迟导入
+        process = psutil.Process(os.getpid())
+        memory_info = process.memory_info()
+        uptime = None
+        if cls._start_time:
+            uptime = (datetime.now(timezone.utc) - cls._start_time).total_seconds()
+
+        # 统计各状态数量
+        latest = cls._latest
+        online = sum(1 for r in latest.values() if r.get("status") == "online")
+        offline = sum(1 for r in latest.values() if r.get("status") == "offline")
+
+        return {
+            "status": "ok" if offline <= 2 else "degraded",
+            "service": "ai-health-checker",
+            "version": "2.1.0",
+            "uptime_seconds": round(uptime, 1) if uptime else None,
+            "uptime_formatted": cls._format_uptime(uptime) if uptime else None,
+            "memory": {
+                "rss_mb": round(memory_info.rss / 1024 / 1024, 2),
+                "vms_mb": round(memory_info.vms / 1024 / 1024, 2),
+                "percent": round(process.memory_percent(), 2),
+            },
+            "projects": {
+                "total": len(PROJECTS),
+                "online": online,
+                "offline": offline,
+                "slow": sum(1 for r in latest.values() if r.get("status") == "slow"),
+            },
+            "checkers": {
+                "sync_total": len(cls._checkers),
+                "sync_running": sum(1 for c in cls._checkers.values() if c.running and not c.paused),
+                "async_total": 0,  # 由main.py补充
+                "async_running": 0,
+            },
+            "inspections_today": cls._inspection_count,
+            "start_time": cls._start_time.isoformat() if cls._start_time else None,
+        }
+
+    @staticmethod
+    def _format_uptime(seconds: float | None) -> str:
+        if not seconds:
+            return "N/A"
+        days = int(seconds // 86400)
+        hours = int((seconds % 86400) // 3600)
+        minutes = int((seconds % 3600) // 60)
+        parts = []
+        if days > 0:
+            parts.append(f"{days}天")
+        if hours > 0:
+            parts.append(f"{hours}小时")
+        if minutes > 0:
+            parts.append(f"{minutes}分钟")
+        return "".join(parts) if parts else "刚刚启动"
+
     # ===== WebSocket 相关 =====
     @classmethod
     async def add_ws_client(cls, websocket):
@@ -653,4 +805,12 @@ class CheckerManager:
         await cls._ws_broadcast({
             "type": "control",
             "action": action,
+        })
+
+    @classmethod
+    async def ws_broadcast_log(cls, log_entry: dict):
+        """广播日志更新"""
+        await cls._ws_broadcast({
+            "type": "log_update",
+            "log": log_entry,
         })

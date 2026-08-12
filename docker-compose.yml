@@ -2,8 +2,32 @@ version: '3.8'
 services:
   health-checker:
     build: .
+    container_name: ai-health-checker
     ports:
       - "8700:8700"
     restart: unless-stopped
     environment:
       - TZ=Asia/Shanghai
+    # 日志配置 - 限制日志大小防止磁盘耗尽
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    # 健康检查配置
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8700/api/health', timeout=5).read()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+    # 数据持久化卷
+    volumes:
+      - ./data:/app/data

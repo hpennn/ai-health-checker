@@ -4,13 +4,16 @@
 import os
 import sys
 import asyncio
+import logging
+import json
+import re
 from contextlib import asynccontextmanager
 from datetime import datetime
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 # 确保 backend 目录在路径中
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -19,6 +22,8 @@ from checker import CheckerManager
 from async_checker import AsyncCheckerManager
 from config import PROJECTS, RuntimeConfig, get_project_by_name
 
+logger = logging.getLogger("health_checker")
+
 # 前端 HTML 文件路径
 FRONTEND_PATH = os.path.join(
     os.path.dirname(os.path.abspath(__file__)),
@@ -26,28 +31,79 @@ FRONTEND_PATH = os.path.join(
     "dashboard.html"
 )
 
+# 版本号
+APP_VERSION = "2.1.0"
 
-# ========== 请求模型 ==========
+
+# ========== 请求模型（带严格校验） ==========
 class ControlRequest(BaseModel):
     action: str  # start / stop
+
+    @field_validator("action")
+    @classmethod
+    def validate_action(cls, v):
+        if v not in ("start", "stop"):
+            raise ValueError("action 必须是 start 或 stop")
+        return v
+
+
+class TimeRange(BaseModel):
+    start: str = Field(default="00:00", description="开始时间 HH:MM 格式")
+    end: str = Field(default="23:59", description="结束时间 HH:MM 格式")
+
+    @field_validator("start", "end")
+    @classmethod
+    def validate_time_format(cls, v):
+        if not re.match(r'^\d{2}:\d{2}$', v):
+            raise ValueError("时间格式必须为 HH:MM")
+        h, m = v.split(":")
+        if int(h) > 23 or int(m) > 59:
+            raise ValueError("时间值不合法")
+        return v
 
 
 class ConfigUpdateRequest(BaseModel):
     inspection_enabled: bool | None = None
-    time_range: dict | None = None
-    interval_min: int | None = None
-    interval_max: int | None = None
-    rounds_min: int | None = None
-    rounds_max: int | None = None
-    rounds_interval_seconds: int | None = None
-    total_inspections_min: int | None = None
-    total_inspections_max: int | None = None
-    async_checker_count: int | None = None
+    time_range: TimeRange | None = None
+    interval_min: int | None = Field(default=None, ge=1, le=1440)
+    interval_max: int | None = Field(default=None, ge=1, le=1440)
+    rounds_min: int | None = Field(default=None, ge=1, le=10)
+    rounds_max: int | None = Field(default=None, ge=1, le=10)
+    rounds_interval_seconds: int | None = Field(default=None, ge=1, le=60)
+    total_inspections_min: int | None = Field(default=None, ge=0, le=100)
+    total_inspections_max: int | None = Field(default=None, ge=0, le=100)
+    async_checker_count: int | None = Field(default=None, ge=0, le=20)
     search_engine: str | None = None
     project_search_keywords: dict | None = None
     # 向后兼容：旧字段
-    interval_minutes: int | None = None
-    rounds_per_inspection: int | None = None
+    interval_minutes: int | None = Field(default=None, ge=1, le=1440)
+    rounds_per_inspection: int | None = Field(default=None, ge=1, le=10)
+
+    @field_validator("search_engine")
+    @classmethod
+    def validate_search_engine(cls, v):
+        if v is not None:
+            se = v.lower()
+            if se not in ("baidu", "bing", "google"):
+                raise ValueError("搜索引擎必须是 baidu、bing 或 google")
+            return se
+        return v
+
+    @field_validator("project_search_keywords")
+    @classmethod
+    def validate_keywords(cls, v):
+        if v is not None:
+            if not isinstance(v, dict):
+                raise ValueError("project_search_keywords 必须是字典")
+            for pname, kws in v.items():
+                if not isinstance(kws, list):
+                    raise ValueError(f"项目 {pname} 的关键词必须是列表")
+                if len(kws) < 1 or len(kws) > 3:
+                    raise ValueError(f"项目 {pname} 的关键词数量必须在 1-3 之间")
+                for kw in kws:
+                    if not isinstance(kw, str) or not kw.strip():
+                        raise ValueError(f"项目 {pname} 的关键词不能为空")
+        return v
 
 
 # ========== 全局任务 ==========
@@ -68,22 +124,22 @@ async def time_range_monitor():
                 if target_paused:
                     CheckerManager.pause_all()
                     AsyncCheckerManager.pause_all()
-                    print(f"[TimeRange] 巡检已暂停（当前不在巡检时间段内或总开关关闭）")
+                    logger.info("[TimeRange] 巡检已暂停（当前不在巡检时间段内或总开关关闭）")
                 else:
                     CheckerManager.resume_all()
                     AsyncCheckerManager.resume_all()
-                    print(f"[TimeRange] 巡检已恢复（进入巡检时间段）")
+                    logger.info("[TimeRange] 巡检已恢复（进入巡检时间段）")
                 await CheckerManager.ws_broadcast_control("pause" if target_paused else "resume")
                 last_state = target_paused
         except Exception as e:
-            print(f"[TimeRange] 监控异常: {e}")
+            logger.error(f"[TimeRange] 监控异常: {e}")
 
         await asyncio.sleep(30)  # 每30秒检查一次
 
 
 async def on_config_change(changed_keys: set):
     """配置变更回调"""
-    print(f"[Config] 配置变更: {changed_keys}")
+    logger.info(f"[Config] 配置变更: {changed_keys}")
 
     # 异步Checker数量变更
     if "async_checker_count" in changed_keys:
@@ -115,15 +171,15 @@ async def lifespan(app: FastAPI):
     if not config.inspection_enabled or not config.is_within_time_range():
         CheckerManager.pause_all()
         AsyncCheckerManager.pause_all()
-        print("[Lifespan] 初始状态：巡检暂停（总开关关闭或不在时间段内）")
+        logger.info("[Lifespan] 初始状态：巡检暂停（总开关关闭或不在时间段内）")
     else:
-        print("[Lifespan] 初始状态：巡检运行中")
+        logger.info("[Lifespan] 初始状态：巡检运行中")
 
     # 启动时间段监控
     global _time_range_task
     _time_range_task = asyncio.create_task(time_range_monitor())
 
-    print("所有 Checker 已启动")
+    logger.info(f"AI Health Checker v{APP_VERSION} 启动完成")
     yield
 
     # 清理
@@ -131,13 +187,13 @@ async def lifespan(app: FastAPI):
         _time_range_task.cancel()
     await CheckerManager.stop_all()
     await AsyncCheckerManager.stop_all()
-    print("所有 Checker 已停止")
+    logger.info("所有 Checker 已停止，服务关闭")
 
 
 app = FastAPI(
     title="AI Health Checker",
     description="多站点健康检测系统 - 同步Checker + 异步搜索Checker",
-    version="2.0.0",
+    version=APP_VERSION,
     lifespan=lifespan,
 )
 
@@ -158,6 +214,36 @@ async def get_dashboard():
         with open(FRONTEND_PATH, "r", encoding="utf-8") as f:
             return HTMLResponse(content=f.read())
     return HTMLResponse(content="<h1>Loading...</h1>")
+
+
+# ========== 健康检查 ==========
+@app.get("/api/health")
+async def health_check():
+    """健康检查端点 - 返回服务运行状态、内存使用、运行时长等"""
+    try:
+        health_info = CheckerManager.get_health_info()
+        # 补充异步Checker信息
+        health_info["checkers"]["async_total"] = AsyncCheckerManager.get_count()
+        health_info["checkers"]["async_running"] = AsyncCheckerManager.get_running_count()
+        return health_info
+    except ImportError:
+        # psutil 未安装时返回简化信息
+        config = RuntimeConfig.get_instance()
+        return {
+            "status": "ok",
+            "service": "ai-health-checker",
+            "version": APP_VERSION,
+            "uptime_seconds": None,
+            "memory": None,
+            "projects": {
+                "total": len(PROJECTS),
+            },
+            "checkers": {
+                "sync_total": 10,
+                "async_total": AsyncCheckerManager.get_count(),
+            },
+            "inspection_enabled": config.inspection_enabled,
+        }
 
 
 # ========== 状态 API ==========
@@ -193,6 +279,7 @@ async def get_all_status():
         "inspection_enabled": config.inspection_enabled,
         "within_time_range": config.is_within_time_range(),
         "inspection_stats": CheckerManager.get_inspection_stats(),
+        "checker_workload": CheckerManager.get_checker_workload(),
     }
 
 
@@ -248,6 +335,15 @@ async def get_agents():
     return {"total": len(agents), "agents": agents}
 
 
+# ========== 实时日志 API ==========
+@app.get("/api/logs")
+async def get_recent_logs(limit: int = 50):
+    """获取最近的巡检日志"""
+    logs = CheckerManager.get_recent_logs()
+    limit = max(1, min(100, limit))
+    return {"total": len(logs), "logs": logs[-limit:]}
+
+
 # ========== 巡检控制 API ==========
 @app.post("/api/control")
 async def control_inspection(req: ControlRequest):
@@ -261,6 +357,7 @@ async def control_inspection(req: ControlRequest):
             CheckerManager.resume_all()
             AsyncCheckerManager.resume_all()
         await CheckerManager.ws_broadcast_control("start")
+        logger.info("[Control] 巡检已启动")
         return {"message": "巡检已启动", "enabled": True, "config": config.to_dict()}
 
     elif req.action == "stop":
@@ -268,10 +365,8 @@ async def control_inspection(req: ControlRequest):
         CheckerManager.pause_all()
         AsyncCheckerManager.pause_all()
         await CheckerManager.ws_broadcast_control("stop")
+        logger.info("[Control] 巡检已停止")
         return {"message": "巡检已停止", "enabled": False, "config": config.to_dict()}
-
-    else:
-        raise HTTPException(status_code=400, detail=f"未知操作: {req.action}")
 
 
 # ========== 配置 API ==========
@@ -282,9 +377,53 @@ async def get_config():
     return config.to_dict()
 
 
+@app.get("/api/config/default")
+async def get_default_config():
+    """获取默认配置（用于恢复默认）"""
+    # 创建一个临时实例获取默认值
+    default_config = RuntimeConfig()
+    return default_config.to_dict()
+
+
+@app.post("/api/config/reset")
+async def reset_config():
+    """恢复默认配置"""
+    config = RuntimeConfig.get_instance()
+    default_config = RuntimeConfig()
+    default_dict = default_config.to_dict()
+
+    result = await config.update(default_dict)
+
+    # 处理启停
+    if "inspection_enabled" in result["changed"]:
+        if config.inspection_enabled and config.is_within_time_range():
+            CheckerManager.resume_all()
+            AsyncCheckerManager.resume_all()
+        elif not config.inspection_enabled:
+            CheckerManager.pause_all()
+            AsyncCheckerManager.pause_all()
+
+    # 时间段变更后检查
+    if "time_range" in result["changed"]:
+        if config.inspection_enabled:
+            if config.is_within_time_range():
+                CheckerManager.resume_all()
+                AsyncCheckerManager.resume_all()
+            else:
+                CheckerManager.pause_all()
+                AsyncCheckerManager.pause_all()
+
+    logger.info("[Config] 配置已恢复为默认值")
+    return {
+        "message": "配置已恢复为默认值",
+        "changed": result["changed"],
+        "config": result["config"],
+    }
+
+
 @app.post("/api/config")
 async def update_config(req: ConfigUpdateRequest):
-    """更新配置"""
+    """更新配置（带严格校验）"""
     config = RuntimeConfig.get_instance()
     update_dict = {}
 
@@ -292,7 +431,7 @@ async def update_config(req: ConfigUpdateRequest):
         update_dict["inspection_enabled"] = req.inspection_enabled
 
     if req.time_range is not None:
-        update_dict["time_range"] = req.time_range
+        update_dict["time_range"] = {"start": req.time_range.start, "end": req.time_range.end}
 
     if req.interval_min is not None:
         update_dict["interval_min"] = req.interval_min
@@ -354,6 +493,8 @@ async def update_config(req: ConfigUpdateRequest):
                 CheckerManager.pause_all()
                 AsyncCheckerManager.pause_all()
 
+    logger.info(f"[Config] 配置更新完成，变更项: {result['changed']}")
+
     return {
         "message": "配置已更新",
         "changed": result["changed"],
@@ -387,6 +528,13 @@ async def websocket_endpoint(websocket: WebSocket):
         "config": config.to_dict(),
     })
 
+    # 推送初始日志
+    logs = CheckerManager.get_recent_logs()
+    await websocket.send_json({
+        "type": "log_init",
+        "logs": logs[-20:],
+    })
+
     try:
         while True:
             # 接收客户端消息（心跳等）
@@ -396,15 +544,9 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        print(f"[WebSocket] 异常: {e}")
+        logger.error(f"[WebSocket] 异常: {e}")
     finally:
         await CheckerManager.remove_ws_client(websocket)
-
-
-# ========== 健康检查 ==========
-@app.get("/api/health")
-async def health_check():
-    return {"status": "ok", "service": "ai-health-checker", "version": "2.0.0"}
 
 
 if __name__ == "__main__":

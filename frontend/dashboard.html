@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Health Checker - 站点健康监控 v2.0</title>
+    <title>AI Health Checker - 站点健康监控 v2.1</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <style>
@@ -12,6 +12,7 @@
         ::-webkit-scrollbar-track { background: #1a1a2e; }
         ::-webkit-scrollbar-thumb { background: #3b3b5c; border-radius: 3px; }
 
+        /* 状态脉冲动画 */
         @keyframes pulse-online {
             0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4); }
             50% { box-shadow: 0 0 0 8px rgba(34, 197, 94, 0); }
@@ -28,6 +29,48 @@
         .status-dot-online { animation: pulse-online 2s infinite; }
         .status-dot-offline { animation: pulse-offline 1.5s infinite; }
         .status-dot-slow { animation: pulse-slow 2s infinite; }
+
+        /* Checker卡片运行动画 */
+        @keyframes checker-running {
+            0%, 100% { border-color: rgba(34, 197, 94, 0.3); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.1); }
+            50% { border-color: rgba(34, 197, 94, 0.6); box-shadow: 0 0 12px 2px rgba(34, 197, 94, 0.15); }
+        }
+        .checker-card-running { animation: checker-running 2s ease-in-out infinite; }
+        .checker-card-paused { opacity: 0.6; filter: grayscale(50%); }
+        .checker-card-stopped { opacity: 0.4; filter: grayscale(100%); }
+
+        /* 滑块样式 */
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            height: 6px;
+            background: rgba(99, 102, 241, 0.2);
+            border-radius: 3px;
+            outline: none;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            background: linear-gradient(135deg, #6366f1, #a855f7);
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(99, 102, 241, 0.4);
+            transition: transform 0.2s;
+        }
+        input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+        }
+        input[type="range"]::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            background: linear-gradient(135deg, #6366f1, #a855f7);
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 2px 8px rgba(99, 102, 241, 0.4);
+        }
 
         .mini-chart {
             display: flex; align-items: flex-end; gap: 2px; height: 30px;
@@ -90,10 +133,114 @@
             to { opacity: 1; transform: translateY(0); }
         }
         .fade-in { animation: fadeIn 0.3s ease; }
+
+        /* Toast 动画 */
+        @keyframes slideDown {
+            from { opacity: 0; transform: translateY(-20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes slideUp {
+            from { opacity: 1; transform: translateY(0); }
+            to { opacity: 0; transform: translateY(-20px); }
+        }
+        .toast-enter { animation: slideDown 0.3s ease forwards; }
+        .toast-leave { animation: slideUp 0.3s ease forwards; }
+
+        /* 进度条动画 */
+        @keyframes progressFill {
+            from { width: 0; }
+        }
+        .progress-bar-fill { animation: progressFill 0.8s ease-out; }
+
+        /* 日志滚动区域 */
+        .log-area {
+            font-family: 'SF Mono', 'Consolas', 'Monaco', monospace;
+            font-size: 11px;
+            line-height: 1.6;
+        }
+        .log-info { color: #9ca3af; }
+        .log-warning { color: #fbbf24; }
+        .log-error { color: #f87171; }
+
+        /* 配置值变更高亮 */
+        .config-changed {
+            background: rgba(168, 85, 247, 0.15) !important;
+            border-color: rgba(168, 85, 247, 0.4) !important;
+        }
+
+        /* 确认弹窗 */
+        .modal-backdrop {
+            background: rgba(0, 0, 0, 0.6);
+            backdrop-filter: blur(4px);
+        }
+
+        /* 响应式 */
+        @media (max-width: 640px) {
+            .hide-on-mobile { display: none !important; }
+            .mobile-full { grid-template-columns: 1fr !important; }
+        }
+
+        /* 搜索结果详情卡片 */
+        .search-detail-card {
+            background: linear-gradient(135deg, rgba(6, 182, 212, 0.1), rgba(99, 102, 241, 0.05));
+            border: 1px solid rgba(6, 182, 212, 0.2);
+        }
     </style>
 </head>
 <body class="min-h-screen text-gray-100" style="background: #0f0f1a;">
     <div x-data="healthData()" x-init="init()">
+        <!-- Toast 通知 -->
+        <div class="fixed top-4 right-4 z-[100] space-y-2 pointer-events-none">
+            <template x-for="toast in toasts" :key="toast.id">
+                <div class="glass rounded-xl px-4 py-3 flex items-center gap-3 min-w-[240px] shadow-lg pointer-events-auto"
+                     :class="toast.type === 'success' ? 'border-green-500/30' : toast.type === 'error' ? 'border-red-500/30' : 'border-indigo-500/30'">
+                    <div x-show="toast.type === 'success'" class="w-6 h-6 rounded-full bg-green-500/20 flex items-center justify-center flex-shrink-0">
+                        <svg class="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                        </svg>
+                    </div>
+                    <div x-show="toast.type === 'error'" class="w-6 h-6 rounded-full bg-red-500/20 flex items-center justify-center flex-shrink-0">
+                        <svg class="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                    </div>
+                    <div x-show="toast.type === 'info'" class="w-6 h-6 rounded-full bg-indigo-500/20 flex items-center justify-center flex-shrink-0">
+                        <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                    </div>
+                    <span class="text-sm text-gray-200" x-text="toast.message"></span>
+                </div>
+            </template>
+        </div>
+
+        <!-- 确认弹窗 -->
+        <div x-show="confirmDialog.show" 
+             class="fixed inset-0 z-[90] flex items-center justify-center p-4 modal-backdrop"
+             x-transition>
+            <div class="glass rounded-2xl w-full max-w-sm border border-gray-700/30 p-6">
+                <div class="flex items-center gap-3 mb-4">
+                    <div class="w-10 h-10 rounded-full bg-yellow-500/20 flex items-center justify-center flex-shrink-0">
+                        <svg class="w-5 h-5 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                        </svg>
+                    </div>
+                    <h3 class="text-lg font-semibold text-gray-100" x-text="confirmDialog.title"></h3>
+                </div>
+                <p class="text-sm text-gray-400 mb-6" x-text="confirmDialog.message"></p>
+                <div class="flex gap-3">
+                    <button @click="confirmDialog.onCancel(); confirmDialog.show = false"
+                            class="flex-1 py-2 rounded-lg bg-gray-700/50 hover:bg-gray-600/50 text-gray-300 text-sm transition">
+                        取消
+                    </button>
+                    <button @click="confirmDialog.onConfirm(); confirmDialog.show = false"
+                            class="flex-1 py-2 rounded-lg bg-red-500/80 hover:bg-red-500 text-white text-sm transition">
+                        确认
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <!-- 顶部导航 -->
         <nav class="glass sticky top-0 z-50 border-b border-indigo-500/10">
             <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between flex-wrap gap-3">
@@ -114,7 +261,7 @@
 
                 <div class="flex items-center gap-3 flex-wrap">
                     <!-- 总开关按钮 -->
-                    <button @click="toggleInspection()"
+                    <button @click="handleToggleInspection()"
                             class="switch-btn px-5 py-2.5 rounded-xl text-white font-bold text-sm flex items-center gap-2"
                             :class="config.inspection_enabled ? 'running' : 'stopped'">
                         <svg x-show="config.inspection_enabled" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -133,7 +280,7 @@
                         </svg>
                         刷新
                     </button>
-                    <button @click="checkAll()" class="px-3 py-2 rounded-lg bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white text-sm transition font-medium">
+                    <button @click="handleCheckAll()" class="px-3 py-2 rounded-lg bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white text-sm transition font-medium">
                         全部检查
                     </button>
                     <button @click="showConfigPanel = !showConfigPanel"
@@ -148,8 +295,8 @@
             </div>
 
             <!-- 状态指示条 -->
-            <div class="border-t border-indigo-500/10 px-4 py-1.5 text-xs flex items-center justify-between max-w-7xl mx-auto">
-                <div class="flex items-center gap-4">
+            <div class="border-t border-indigo-500/10 px-4 py-1.5 text-xs flex items-center justify-between max-w-7xl mx-auto flex-wrap gap-2">
+                <div class="flex items-center gap-4 flex-wrap">
                     <span class="text-gray-500">
                         上次刷新: <span class="text-gray-300" x-text="lastUpdate"></span>
                     </span>
@@ -157,8 +304,11 @@
                         WebSocket: 
                         <span :class="wsConnected ? 'text-green-400' : 'text-red-400'" x-text="wsConnected ? '已连接' : '未连接'"></span>
                     </span>
+                    <span class="text-gray-500 hide-on-mobile" x-show="healthInfo.uptime_formatted">
+                        运行时长: <span class="text-indigo-300" x-text="healthInfo.uptime_formatted"></span>
+                    </span>
                 </div>
-                <div class="flex items-center gap-4">
+                <div class="flex items-center gap-4 flex-wrap">
                     <span class="text-gray-500">
                         巡检时间段: <span class="text-indigo-300" x-text="config.time_range?.start + ' - ' + config.time_range?.end"></span>
                     </span>
@@ -172,7 +322,7 @@
         <div class="max-w-7xl mx-auto px-4 py-6">
             <!-- 配置面板 -->
             <div x-show="showConfigPanel" x-transition class="glass rounded-2xl p-5 mb-6 border border-indigo-500/20 fade-in">
-                <div class="flex items-center justify-between mb-4">
+                <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
                     <h3 class="text-lg font-semibold text-gray-200 flex items-center gap-2">
                         <svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
@@ -180,13 +330,26 @@
                         </svg>
                         巡检配置
                     </h3>
-                    <button @click="saveConfig()" class="px-4 py-2 rounded-lg bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white text-sm font-medium transition">
-                        保存配置
-                    </button>
+                    <div class="flex items-center gap-2">
+                        <button @click="resetConfig()" class="px-3 py-1.5 rounded-lg bg-gray-700/50 hover:bg-gray-600/50 text-gray-400 hover:text-gray-300 text-xs transition flex items-center gap-1">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                            </svg>
+                            恢复默认
+                        </button>
+                        <button @click="saveConfig()" 
+                                :disabled="savingConfig"
+                                class="px-4 py-2 rounded-lg bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 disabled:opacity-50 text-white text-sm font-medium transition flex items-center gap-2">
+                            <svg x-show="savingConfig" class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                            </svg>
+                            <span x-text="savingConfig ? '保存中...' : '保存配置'"></span>
+                        </button>
+                    </div>
                 </div>
 
                 <!-- 配置Tab切换 -->
-                <div class="flex gap-2 mb-4 border-b border-gray-700/30 pb-2">
+                <div class="flex gap-2 mb-4 border-b border-gray-700/30 pb-2 flex-wrap">
                     <button @click="configTab = 'basic'"
                             :class="configTab === 'basic' ? 'tab-btn active' : 'text-gray-400 hover:text-gray-200'"
                             class="px-3 py-1.5 rounded-lg text-sm transition">
@@ -200,66 +363,140 @@
                 </div>
 
                 <!-- 基础配置 -->
-                <div x-show="configTab === 'basic'" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div x-show="configTab === 'basic'" class="space-y-4">
+                    <!-- 时间段快捷选项 -->
                     <div class="bg-gray-800/30 rounded-xl p-4">
-                        <label class="text-sm text-gray-400 block mb-2">巡检开始时间</label>
-                        <input type="time" x-model="config.time_range.start"
-                               class="config-input w-full px-3 py-2 rounded-lg text-sm">
-                    </div>
-                    <div class="bg-gray-800/30 rounded-xl p-4">
-                        <label class="text-sm text-gray-400 block mb-2">巡检结束时间</label>
-                        <input type="time" x-model="config.time_range.end"
-                               class="config-input w-full px-3 py-2 rounded-lg text-sm">
-                    </div>
-                    <div class="bg-gray-800/30 rounded-xl p-4">
-                        <label class="text-sm text-gray-400 block mb-2">
-                            间隔：<span class="text-indigo-300" x-text="config.interval_min"></span> ~ <span class="text-indigo-300" x-text="config.interval_max"></span> 分钟
-                        </label>
-                        <div class="flex items-center gap-2">
-                            <input type="number" x-model.number="config.interval_min" min="1" max="1440"
-                                   class="config-input w-full px-3 py-2 rounded-lg text-sm" placeholder="最小">
-                            <span class="text-gray-500 text-xs">~</span>
-                            <input type="number" x-model.number="config.interval_max" min="1" max="1440"
-                                   class="config-input w-full px-3 py-2 rounded-lg text-sm" placeholder="最大">
+                        <label class="text-sm text-gray-400 block mb-3">巡检时间段</label>
+                        <div class="flex flex-wrap gap-2 mb-3">
+                            <button @click="setTimePreset('allday')" 
+                                    :class="isTimePreset('allday') ? 'bg-indigo-500/30 text-indigo-300 border-indigo-500/40' : 'bg-gray-700/30 text-gray-400 border-gray-600/30 hover:bg-gray-700/50'"
+                                    class="px-3 py-1 rounded-lg text-xs border transition">
+                                全天
+                            </button>
+                            <button @click="setTimePreset('work')" 
+                                    :class="isTimePreset('work') ? 'bg-indigo-500/30 text-indigo-300 border-indigo-500/40' : 'bg-gray-700/30 text-gray-400 border-gray-600/30 hover:bg-gray-700/50'"
+                                    class="px-3 py-1 rounded-lg text-xs border transition">
+                                工作时间
+                            </button>
+                            <button @click="setTimePreset('night')" 
+                                    :class="isTimePreset('night') ? 'bg-indigo-500/30 text-indigo-300 border-indigo-500/40' : 'bg-gray-700/30 text-gray-400 border-gray-600/30 hover:bg-gray-700/50'"
+                                    class="px-3 py-1 rounded-lg text-xs border transition">
+                                夜间
+                            </button>
+                            <button @click="setTimePreset('peak')" 
+                                    :class="isTimePreset('peak') ? 'bg-indigo-500/30 text-indigo-300 border-indigo-500/40' : 'bg-gray-700/30 text-gray-400 border-gray-600/30 hover:bg-gray-700/50'"
+                                    class="px-3 py-1 rounded-lg text-xs border transition">
+                                高峰时段
+                            </button>
                         </div>
-                        <p class="text-xs text-gray-500 mt-1">范围 1-1440 分钟</p>
-                        <p class="text-xs text-green-400 mt-1" x-show="inspectionStats.next_interval_minutes">
-                            下次间隔：<span x-text="inspectionStats.next_interval_minutes"></span> 分钟后
-                        </p>
-                    </div>
-                    <div class="bg-gray-800/30 rounded-xl p-4">
-                        <label class="text-sm text-gray-400 block mb-2">
-                            轮数：<span class="text-indigo-300" x-text="config.rounds_min"></span> ~ <span class="text-indigo-300" x-text="config.rounds_max"></span> 次
-                        </label>
-                        <div class="flex items-center gap-2">
-                            <input type="number" x-model.number="config.rounds_min" min="1" max="10"
-                                   class="config-input w-full px-3 py-2 rounded-lg text-sm" placeholder="最小">
-                            <span class="text-gray-500 text-xs">~</span>
-                            <input type="number" x-model.number="config.rounds_max" min="1" max="10"
-                                   class="config-input w-full px-3 py-2 rounded-lg text-sm" placeholder="最大">
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="text-xs text-gray-500 block mb-1">开始时间</label>
+                                <input type="time" x-model="config.time_range.start"
+                                       class="config-input w-full px-3 py-2 rounded-lg text-sm">
+                            </div>
+                            <div>
+                                <label class="text-xs text-gray-500 block mb-1">结束时间</label>
+                                <input type="time" x-model="config.time_range.end"
+                                       class="config-input w-full px-3 py-2 rounded-lg text-sm">
+                            </div>
                         </div>
-                        <p class="text-xs text-gray-500 mt-1">每轮内每项目检查 1-10 次（随机）</p>
                     </div>
-                    <div class="bg-gray-800/30 rounded-xl p-4 lg:col-span-2">
-                        <label class="text-sm text-gray-400 block mb-2">
-                            每日总巡检：
-                            <span class="text-indigo-300" x-text="config.total_inspections_min"></span> ~ <span class="text-indigo-300" x-text="config.total_inspections_max"></span> 次
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <!-- 间隔滑块 -->
+                        <div class="bg-gray-800/30 rounded-xl p-4">
+                            <label class="text-sm text-gray-400 block mb-3">
+                                巡检间隔：<span class="text-indigo-300 font-medium" x-text="config.interval_min + ' ~ ' + config.interval_max"></span> 分钟
+                            </label>
+                            <div class="space-y-4">
+                                <div>
+                                    <div class="flex justify-between text-xs text-gray-500 mb-1">
+                                        <span>最小间隔</span>
+                                        <span class="text-indigo-300" x-text="config.interval_min + ' 分钟'"></span>
+                                    </div>
+                                    <input type="range" x-model.number="config.interval_min" min="1" max="240" step="1"
+                                           class="w-full">
+                                </div>
+                                <div>
+                                    <div class="flex justify-between text-xs text-gray-500 mb-1">
+                                        <span>最大间隔</span>
+                                        <span class="text-indigo-300" x-text="config.interval_max + ' 分钟'"></span>
+                                    </div>
+                                    <input type="range" x-model.number="config.interval_max" min="1" max="240" step="1"
+                                           class="w-full">
+                                </div>
+                            </div>
+                            <p class="text-xs text-green-400 mt-2" x-show="inspectionStats.next_interval_minutes">
+                                下次间隔：约 <span x-text="inspectionStats.next_interval_minutes"></span> 分钟
+                            </p>
+                        </div>
+
+                        <!-- 轮数滑块 -->
+                        <div class="bg-gray-800/30 rounded-xl p-4">
+                            <label class="text-sm text-gray-400 block mb-3">
+                                每轮检查次数：<span class="text-indigo-300 font-medium" x-text="config.rounds_min + ' ~ ' + config.rounds_max"></span> 次
+                            </label>
+                            <div class="space-y-4">
+                                <div>
+                                    <div class="flex justify-between text-xs text-gray-500 mb-1">
+                                        <span>最少数</span>
+                                        <span class="text-indigo-300" x-text="config.rounds_min + ' 次'"></span>
+                                    </div>
+                                    <input type="range" x-model.number="config.rounds_min" min="1" max="10" step="1"
+                                           class="w-full">
+                                </div>
+                                <div>
+                                    <div class="flex justify-between text-xs text-gray-500 mb-1">
+                                        <span>最多数</span>
+                                        <span class="text-indigo-300" x-text="config.rounds_max + ' 次'"></span>
+                                    </div>
+                                    <input type="range" x-model.number="config.rounds_max" min="1" max="10" step="1"
+                                           class="w-full">
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2 mt-3">
+                                <span class="text-xs text-gray-500">轮内间隔:</span>
+                                <input type="number" x-model.number="config.rounds_interval_seconds" min="1" max="60"
+                                       class="config-input w-20 px-2 py-1 rounded text-xs text-center">
+                                <span class="text-xs text-gray-500">秒</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 每日总巡检进度 -->
+                    <div class="bg-gray-800/30 rounded-xl p-4">
+                        <div class="flex items-center justify-between mb-3">
+                            <label class="text-sm text-gray-400">每日总巡检次数</label>
                             <span class="text-xs text-gray-500">（0=不限）</span>
-                        </label>
-                        <div class="flex items-center gap-2">
-                            <input type="number" x-model.number="config.total_inspections_min" min="0" max="100"
-                                   class="config-input w-full px-3 py-2 rounded-lg text-sm" placeholder="最小">
-                            <span class="text-gray-500 text-xs">~</span>
-                            <input type="number" x-model.number="config.total_inspections_max" min="0" max="100"
-                                   class="config-input w-full px-3 py-2 rounded-lg text-sm" placeholder="最大">
                         </div>
-                        <p class="text-xs text-gray-500 mt-1">范围 0-100 次，0 表示不限次数</p>
-                        <p class="text-xs text-purple-400 mt-1" x-show="inspectionStats.daily_limit > 0">
-                            今日已巡检 <span x-text="inspectionStats.today_count"></span> / <span x-text="inspectionStats.daily_limit"></span> 次
-                        </p>
-                        <p class="text-xs text-gray-400 mt-1" x-show="inspectionStats.daily_limit === 0">
-                            今日已巡检 <span x-text="inspectionStats.today_count"></span> 次（不限次数）
-                        </p>
+                        <div class="flex items-center gap-3 mb-3">
+                            <input type="number" x-model.number="config.total_inspections_min" min="0" max="100"
+                                   class="config-input w-24 px-3 py-2 rounded-lg text-sm text-center">
+                            <span class="text-gray-500">~</span>
+                            <input type="number" x-model.number="config.total_inspections_max" min="0" max="100"
+                                   class="config-input w-24 px-3 py-2 rounded-lg text-sm text-center">
+                            <span class="text-xs text-gray-500">次/天</span>
+                        </div>
+                        <!-- 今日进度条 -->
+                        <div x-show="inspectionStats.daily_limit > 0" class="mt-3">
+                            <div class="flex justify-between text-xs mb-1">
+                                <span class="text-gray-400">今日进度</span>
+                                <span class="text-purple-400">
+                                    <span x-text="inspectionStats.today_count"></span> / <span x-text="inspectionStats.daily_limit"></span> 次
+                                </span>
+                            </div>
+                            <div class="w-full h-2 bg-gray-700/50 rounded-full overflow-hidden">
+                                <div class="h-full bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full progress-bar-fill transition-all duration-500"
+                                     :style="{ width: Math.min(100, inspectionStats.today_count / inspectionStats.daily_limit * 100) + '%' }"></div>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-1">
+                                剩余 <span class="text-green-400" x-text="inspectionStats.remaining"></span> 次
+                            </p>
+                        </div>
+                        <div x-show="inspectionStats.daily_limit === 0" class="text-xs text-gray-500">
+                            今日已巡检 <span class="text-indigo-300" x-text="inspectionStats.today_count"></span> 次（不限次数）
+                        </div>
                     </div>
                 </div>
 
@@ -268,9 +505,12 @@
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div class="bg-gray-800/30 rounded-xl p-4">
                             <label class="text-sm text-gray-400 block mb-2">异步Checker数量</label>
-                            <input type="number" x-model.number="config.async_checker_count" min="0" max="20"
-                                   class="config-input w-full px-3 py-2 rounded-lg text-sm">
-                            <p class="text-xs text-gray-500 mt-1">范围 0-20，0 表示不启用</p>
+                            <div class="flex items-center gap-3">
+                                <input type="range" x-model.number="config.async_checker_count" min="0" max="10" step="1"
+                                       class="flex-1">
+                                <span class="text-cyan-300 font-bold text-lg w-8 text-right" x-text="config.async_checker_count"></span>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-2">0=不启用，最多20个</p>
                         </div>
                         <div class="bg-gray-800/30 rounded-xl p-4">
                             <label class="text-sm text-gray-400 block mb-2">搜索引擎</label>
@@ -280,53 +520,75 @@
                                 <option value="bing">必应</option>
                                 <option value="google">Google</option>
                             </select>
+                            <p class="text-xs text-gray-500 mt-2">搜索失败自动重试2次</p>
                         </div>
                         <div class="bg-gray-800/30 rounded-xl p-4">
                             <label class="text-sm text-gray-400 block mb-2">轮内间隔（秒）</label>
                             <input type="number" x-model.number="config.rounds_interval_seconds" min="1" max="60"
                                    class="config-input w-full px-3 py-2 rounded-lg text-sm">
-                            <p class="text-xs text-gray-500 mt-1">多次检查间的间隔</p>
+                            <p class="text-xs text-gray-500 mt-2">多次检查间的间隔</p>
                         </div>
                     </div>
 
-                    <!-- 搜索词配置 -->
+                    <!-- 搜索词预设模板 -->
                     <div class="bg-gray-800/30 rounded-xl p-4">
                         <div class="flex items-center justify-between mb-3">
-                            <h4 class="text-sm font-medium text-gray-300">项目搜索关键词配置</h4>
-                            <span class="text-xs text-gray-500">每个项目 1-3 个关键词</span>
+                            <h4 class="text-sm font-medium text-gray-300">搜索词快速预设</h4>
                         </div>
-                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-80 overflow-y-auto pr-2">
-                            <template x-for="(kws, pname) in config.project_search_keywords" :key="pname">
-                                <div class="bg-gray-900/50 rounded-lg p-3 border border-gray-700/30">
-                                    <p class="text-xs font-medium text-indigo-300 mb-2" x-text="pname"></p>
-                                    <div class="space-y-1.5">
-                                        <template x-for="(kw, idx) in kws" :key="idx">
-                                            <div class="flex gap-1">
-                                                <input type="text" :value="kw"
-                                                       @input="updateKeyword(pname, idx, $event.target.value)"
-                                                       class="config-input flex-1 px-2 py-1 rounded text-xs"
-                                                       :placeholder="'关键词 ' + (idx + 1)">
-                                                <button @click="removeKeyword(pname, idx)"
-                                                        x-show="kws.length > 1"
-                                                        class="w-6 h-6 rounded bg-red-500/20 hover:bg-red-500/30 text-red-400 text-xs flex items-center justify-center">
-                                                    ×
-                                                </button>
-                                            </div>
-                                        </template>
-                                        <button @click="addKeyword(pname)"
-                                                x-show="kws.length < 3"
-                                                class="w-full py-1 text-xs text-indigo-400 hover:text-indigo-300 border border-dashed border-indigo-500/30 rounded hover:border-indigo-500/50 transition">
-                                            + 添加关键词
-                                        </button>
+                        <div class="flex flex-wrap gap-2 mb-4">
+                            <button @click="applyKeywordPreset('brand')"
+                                    class="px-3 py-1.5 rounded-lg text-xs bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/30 transition">
+                                品牌词模板
+                            </button>
+                            <button @click="applyKeywordPreset('longtail')"
+                                    class="px-3 py-1.5 rounded-lg text-xs bg-purple-500/20 text-purple-300 border border-purple-500/30 hover:bg-purple-500/30 transition">
+                                长尾词模板
+                            </button>
+                            <button @click="applyKeywordPreset('product')"
+                                    class="px-3 py-1.5 rounded-lg text-xs bg-pink-500/20 text-pink-300 border border-pink-500/30 hover:bg-pink-500/30 transition">
+                                产品功能模板
+                            </button>
+                        </div>
+
+                        <!-- 搜索词配置 -->
+                        <div class="border-t border-gray-700/30 pt-4">
+                            <div class="flex items-center justify-between mb-3">
+                                <h5 class="text-sm font-medium text-gray-300">项目搜索关键词配置</h5>
+                                <span class="text-xs text-gray-500">每个项目 1-3 个关键词</span>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-80 overflow-y-auto pr-2">
+                                <template x-for="(kws, pname) in config.project_search_keywords" :key="pname">
+                                    <div class="bg-gray-900/50 rounded-lg p-3 border border-gray-700/30">
+                                        <p class="text-xs font-medium text-indigo-300 mb-2" x-text="pname"></p>
+                                        <div class="space-y-1.5">
+                                            <template x-for="(kw, idx) in kws" :key="idx">
+                                                <div class="flex gap-1">
+                                                    <input type="text" :value="kw"
+                                                           @input="updateKeyword(pname, idx, $event.target.value)"
+                                                           class="config-input flex-1 px-2 py-1 rounded text-xs"
+                                                           :placeholder="'关键词 ' + (idx + 1)">
+                                                    <button @click="removeKeyword(pname, idx)"
+                                                            x-show="kws.length > 1"
+                                                            class="w-6 h-6 rounded bg-red-500/20 hover:bg-red-500/30 text-red-400 text-xs flex items-center justify-center">
+                                                        ×
+                                                    </button>
+                                                </div>
+                                            </template>
+                                            <button @click="addKeyword(pname)"
+                                                    x-show="kws.length < 3"
+                                                    class="w-full py-1 text-xs text-indigo-400 hover:text-indigo-300 border border-dashed border-indigo-500/30 rounded hover:border-indigo-500/50 transition">
+                                                + 添加关键词
+                                            </button>
+                                        </div>
                                     </div>
-                                </div>
-                            </template>
+                                </template>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- 总览统计 -->
+            <!-- 总览统计 + 今日进度 -->
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                 <div class="glass rounded-2xl p-4">
                     <div class="flex items-center gap-3">
@@ -380,7 +642,7 @@
                         <div>
                             <p class="text-xs text-gray-400">运行 Agent</p>
                             <p class="text-2xl font-bold text-purple-400">
-                                <span x-text="agentsRunning">0</span>
+                                <span x-text="agentsRunning"></span>
                                 <span class="text-sm font-normal text-gray-500">/10</span>
                             </p>
                         </div>
@@ -388,89 +650,147 @@
                 </div>
             </div>
 
-            <!-- 项目卡片网格 -->
-            <div class="mb-6">
-                <div class="flex items-center justify-between mb-4">
-                    <h2 class="text-lg font-semibold text-gray-200">📊 项目状态监控</h2>
-                    <div class="flex gap-2">
-                        <button @click="filterCategory = 'all'" 
-                                :class="filterCategory === 'all' ? 'bg-indigo-500/30 text-indigo-300' : 'bg-gray-800/50 text-gray-400 hover:bg-gray-700/50'"
-                                class="px-3 py-1 rounded-lg text-xs transition">
-                            全部
-                        </button>
-                        <button @click="filterCategory = 'AI工具'" 
-                                :class="filterCategory === 'AI工具' ? 'bg-indigo-500/30 text-indigo-300' : 'bg-gray-800/50 text-gray-400 hover:bg-gray-700/50'"
-                                class="px-3 py-1 rounded-lg text-xs transition">
-                            AI工具
-                        </button>
-                        <button @click="filterCategory = '工具'" 
-                                :class="filterCategory === '工具' ? 'bg-indigo-500/30 text-indigo-300' : 'bg-gray-800/50 text-gray-400 hover:bg-gray-700/50'"
-                                class="px-3 py-1 rounded-lg text-xs transition">
-                            工具
-                        </button>
+            <!-- Checker 工作量分布 -->
+            <div class="glass rounded-2xl p-4 mb-6 border border-gray-700/30">
+                <h3 class="text-sm font-semibold text-gray-300 mb-3 flex items-center gap-2">
+                    <svg class="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                    </svg>
+                    Checker 工作量分布
+                </h3>
+                <div class="grid grid-cols-5 sm:grid-cols-10 gap-2">
+                    <template x-for="work in workloadList" :key="work.id">
+                        <div class="text-center">
+                            <div class="text-xs text-gray-400 mb-1" x-text="'#' + work.id"></div>
+                            <div class="w-full bg-gray-700/30 rounded-full h-16 relative overflow-hidden">
+                                <div class="absolute bottom-0 w-full bg-gradient-to-t from-indigo-500 to-purple-500 rounded-t transition-all duration-500"
+                                     :style="{ height: work.barHeight + '%' }"></div>
+                            </div>
+                            <div class="text-xs text-indigo-300 mt-1" x-text="work.check_count"></div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+                <!-- 项目卡片网格 -->
+                <div class="lg:col-span-2">
+                    <div class="mb-4">
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="text-lg font-semibold text-gray-200">📊 项目状态监控</h2>
+                            <div class="flex gap-2">
+                                <button @click="filterCategory = 'all'" 
+                                        :class="filterCategory === 'all' ? 'bg-indigo-500/30 text-indigo-300' : 'bg-gray-800/50 text-gray-400 hover:bg-gray-700/50'"
+                                        class="px-3 py-1 rounded-lg text-xs transition">
+                                    全部
+                                </button>
+                                <button @click="filterCategory = 'AI工具'" 
+                                        :class="filterCategory === 'AI工具' ? 'bg-indigo-500/30 text-indigo-300' : 'bg-gray-800/50 text-gray-400 hover:bg-gray-700/50'"
+                                        class="px-3 py-1 rounded-lg text-xs transition">
+                                    AI工具
+                                </button>
+                                <button @click="filterCategory = '工具'" 
+                                        :class="filterCategory === '工具' ? 'bg-indigo-500/30 text-indigo-300' : 'bg-gray-800/50 text-gray-400 hover:bg-gray-700/50'"
+                                        class="px-3 py-1 rounded-lg text-xs transition">
+                                    工具
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                            <template x-for="project in filteredProjects" :key="project.name">
+                                <div class="glass rounded-2xl p-4 card-hover border border-gray-700/30 cursor-pointer"
+                                     @click="showDetail(project.name)">
+                                    <div class="flex items-start justify-between mb-3">
+                                        <div class="flex-1 min-w-0">
+                                            <div class="flex items-center gap-2">
+                                                <h3 class="font-medium text-gray-100 truncate" x-text="project.name"></h3>
+                                            </div>
+                                            <span class="inline-block mt-1 px-2 py-0.5 text-xs rounded-full"
+                                                  :class="project.category === 'AI工具' ? 'bg-purple-500/20 text-purple-300' : 'bg-indigo-500/20 text-indigo-300'"
+                                                  x-text="project.category"></span>
+                                        </div>
+                                        <div class="w-3 h-3 rounded-full ml-2 flex-shrink-0"
+                                             :class="{
+                                                 'bg-green-500 status-dot-online': project.status === 'online',
+                                                 'bg-red-500 status-dot-offline': project.status === 'offline',
+                                                 'bg-yellow-500 status-dot-slow': project.status === 'slow',
+                                                 'bg-gray-500': project.status === 'pending' || project.status === 'unknown'
+                                             }"></div>
+                                    </div>
+
+                                    <div class="flex items-end justify-between mb-3">
+                                        <div>
+                                            <p class="text-2xl font-bold"
+                                               :class="{
+                                                   'text-green-400': project.status === 'online',
+                                                   'text-red-400': project.status === 'offline',
+                                                   'text-yellow-400': project.status === 'slow',
+                                                   'text-gray-500': project.status === 'pending'
+                                               }">
+                                                <span x-text="project.response_time_ms ? project.response_time_ms.toFixed(0) : '--'"></span>
+                                                <span class="text-xs font-normal text-gray-500" x-show="project.response_time_ms">ms</span>
+                                            </p>
+                                            <p class="text-xs text-gray-500 mt-0.5">
+                                                <span x-show="project.status === 'online'">正常</span>
+                                                <span x-show="project.status === 'offline'">离线</span>
+                                                <span x-show="project.status === 'slow'">较慢</span>
+                                                <span x-show="project.status === 'pending'">等待中</span>
+                                            </p>
+                                        </div>
+                                        <div class="mini-chart">
+                                            <template x-for="(rt, i) in getMiniChart(project.name)" :key="i">
+                                                <div class="bar"
+                                                     :class="{'offline': rt.status === 'offline', 'slow': rt.status === 'slow'}"
+                                                     :style="{height: rt.height + '%'}"></div>
+                                            </template>
+                                        </div>
+                                    </div>
+
+                                    <div class="flex items-center justify-between pt-3 border-t border-gray-700/30">
+                                        <div class="flex items-center gap-1.5">
+                                            <div class="w-5 h-5 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-[10px] font-bold text-white"
+                                                 x-text="project.checker_id || '-'"></div>
+                                            <span class="text-xs text-gray-500">Checker</span>
+                                        </div>
+                                        <span class="text-xs text-gray-500" x-text="formatTime(project.timestamp)"></span>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                    <template x-for="project in filteredProjects" :key="project.name">
-                        <div class="glass rounded-2xl p-4 card-hover border border-gray-700/30 cursor-pointer"
-                             @click="showDetail(project.name)">
-                            <div class="flex items-start justify-between mb-3">
-                                <div class="flex-1 min-w-0">
-                                    <div class="flex items-center gap-2">
-                                        <h3 class="font-medium text-gray-100 truncate" x-text="project.name"></h3>
-                                    </div>
-                                    <span class="inline-block mt-1 px-2 py-0.5 text-xs rounded-full"
-                                          :class="project.category === 'AI工具' ? 'bg-purple-500/20 text-purple-300' : 'bg-indigo-500/20 text-indigo-300'"
-                                          x-text="project.category"></span>
+                <!-- 实时日志区域 -->
+                <div class="lg:col-span-1">
+                    <div class="glass rounded-2xl p-4 border border-gray-700/30 h-full flex flex-col" style="min-height: 400px;">
+                        <div class="flex items-center justify-between mb-3">
+                            <h3 class="text-sm font-semibold text-gray-300 flex items-center gap-2">
+                                <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                                </svg>
+                                实时日志
+                            </h3>
+                            <span class="text-xs text-gray-500" x-text="liveLogs.length + ' 条'"></span>
+                        </div>
+                        <div class="log-area flex-1 overflow-y-auto bg-gray-900/50 rounded-lg p-3 space-y-1"
+                             x-ref="logContainer">
+                            <template x-for="log in liveLogs.slice().reverse().slice(0, 50)" :key="log.timestamp + log.message">
+                                <div class="flex gap-2">
+                                    <span class="text-gray-600 flex-shrink-0" x-text="formatLogTime(log.timestamp)"></span>
+                                    <span :class="{
+                                        'text-green-400': log.level === 'success',
+                                        'text-yellow-400': log.level === 'warning',
+                                        'text-red-400': log.level === 'error',
+                                        'text-gray-400': log.level === 'info'
+                                    }" x-text="log.message"></span>
                                 </div>
-                                <div class="w-3 h-3 rounded-full ml-2 flex-shrink-0"
-                                     :class="{
-                                         'bg-green-500 status-dot-online': project.status === 'online',
-                                         'bg-red-500 status-dot-offline': project.status === 'offline',
-                                         'bg-yellow-500 status-dot-slow': project.status === 'slow',
-                                         'bg-gray-500': project.status === 'pending' || project.status === 'unknown'
-                                     }"></div>
-                            </div>
-
-                            <div class="flex items-end justify-between mb-3">
-                                <div>
-                                    <p class="text-2xl font-bold"
-                                       :class="{
-                                           'text-green-400': project.status === 'online',
-                                           'text-red-400': project.status === 'offline',
-                                           'text-yellow-400': project.status === 'slow',
-                                           'text-gray-500': project.status === 'pending'
-                                       }">
-                                        <span x-text="project.response_time_ms ? project.response_time_ms.toFixed(0) : '--'"></span>
-                                        <span class="text-xs font-normal text-gray-500" x-show="project.response_time_ms">ms</span>
-                                    </p>
-                                    <p class="text-xs text-gray-500 mt-0.5">
-                                        <span x-show="project.status === 'online'">正常</span>
-                                        <span x-show="project.status === 'offline'">离线</span>
-                                        <span x-show="project.status === 'slow'">较慢</span>
-                                        <span x-show="project.status === 'pending'">等待中</span>
-                                    </p>
-                                </div>
-                                <div class="mini-chart">
-                                    <template x-for="(rt, i) in getMiniChart(project.name)" :key="i">
-                                        <div class="bar"
-                                             :class="{'offline': rt.status === 'offline', 'slow': rt.status === 'slow'}"
-                                             :style="{height: rt.height + '%'}"></div>
-                                    </template>
-                                </div>
-                            </div>
-
-                            <div class="flex items-center justify-between pt-3 border-t border-gray-700/30">
-                                <div class="flex items-center gap-1.5">
-                                    <div class="w-5 h-5 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-[10px] font-bold text-white"
-                                         x-text="project.checker_id || '-'"></div>
-                                    <span class="text-xs text-gray-500">Checker</span>
-                                </div>
-                                <span class="text-xs text-gray-500" x-text="formatTime(project.timestamp)"></span>
+                            </template>
+                            <div x-show="liveLogs.length === 0" class="text-center text-gray-600 py-8">
+                                暂无日志...
                             </div>
                         </div>
-                    </template>
+                    </div>
                 </div>
             </div>
 
@@ -479,7 +799,12 @@
                 <h2 class="text-lg font-semibold text-gray-200 mb-4">🤖 同步 Checker Agent 状态</h2>
                 <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
                     <template x-for="agent in agents" :key="agent.id">
-                        <div class="glass rounded-xl p-3 border border-gray-700/30">
+                        <div class="glass rounded-xl p-3 border border-gray-700/30 transition-all duration-300"
+                             :class="{
+                                 'checker-card-running': agent.running && !agent.paused,
+                                 'checker-card-paused': agent.paused,
+                                 'checker-card-stopped': !agent.running
+                             }">
                             <div class="flex items-center gap-2 mb-2">
                                 <div class="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold text-white"
                                      :class="agent.running && !agent.paused ? 'bg-gradient-to-br from-green-500 to-emerald-600' : agent.paused ? 'bg-gradient-to-br from-yellow-500 to-orange-500' : 'bg-gray-600'">
@@ -521,7 +846,12 @@
                 </h2>
                 <div x-show="asyncCheckers.length > 0" class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3">
                     <template x-for="checker in asyncCheckers" :key="checker.id">
-                        <div class="glass rounded-xl p-3 border border-cyan-500/20">
+                        <div class="glass rounded-xl p-3 border border-cyan-500/20 transition-all duration-300"
+                             :class="{
+                                 'checker-card-running': checker.running && !checker.paused,
+                                 'checker-card-paused': checker.paused,
+                                 'checker-card-stopped': !checker.running
+                             }">
                             <div class="flex items-center gap-2 mb-2">
                                 <div class="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold text-white"
                                      :class="checker.running && !checker.paused ? 'bg-gradient-to-br from-cyan-500 to-blue-600' : checker.paused ? 'bg-gradient-to-br from-yellow-500 to-orange-500' : 'bg-gray-600'">
@@ -556,6 +886,59 @@
                 <div x-show="asyncCheckers.length === 0" class="glass rounded-xl p-6 text-center text-gray-500">
                     异步Checker正在启动中...
                 </div>
+
+                <!-- 异步搜索结果详情 -->
+                <div x-show="Object.keys(asyncLatest).length > 0" class="mt-4">
+                    <h3 class="text-sm font-medium text-gray-300 mb-3">最近搜索访问详情</h3>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <template x-for="(result, pname) in asyncLatest" :key="pname">
+                            <div class="search-detail-card rounded-xl p-3">
+                                <div class="flex items-center justify-between mb-2">
+                                    <span class="text-sm font-medium text-cyan-200" x-text="pname"></span>
+                                    <span class="px-2 py-0.5 rounded-full text-xs"
+                                          :class="{
+                                              'bg-green-500/20 text-green-400': result.status === 'online',
+                                              'bg-red-500/20 text-red-400': result.status === 'offline',
+                                              'bg-yellow-500/20 text-yellow-400': result.status === 'slow'
+                                          }" x-text="statusText(result.status)"></span>
+                                </div>
+                                <div class="space-y-1.5 text-xs">
+                                    <div class="flex gap-2">
+                                        <span class="text-gray-500 flex-shrink-0 w-16">搜索词:</span>
+                                        <span class="text-indigo-300 truncate" x-text="result.search_keyword"></span>
+                                    </div>
+                                    <div class="flex gap-2">
+                                        <span class="text-gray-500 flex-shrink-0 w-16">引擎:</span>
+                                        <span class="text-gray-300" x-text="result.search_engine"></span>
+                                    </div>
+                                    <div class="flex gap-2">
+                                        <span class="text-gray-500 flex-shrink-0 w-16">结果数:</span>
+                                        <span class="text-gray-300" x-text="result.search_result_count + ' 条'"></span>
+                                        <span x-show="result.search_attempts > 1" class="text-yellow-400"
+                                              x-text="'（重试' + (result.search_attempts - 1) + '次）'"></span>
+                                    </div>
+                                    <div class="flex gap-2">
+                                        <span class="text-gray-500 flex-shrink-0 w-16">点击:</span>
+                                        <span class="text-green-300 truncate" :title="result.clicked_title" x-text="result.clicked_title || result.clicked_url"></span>
+                                    </div>
+                                    <div class="flex gap-2">
+                                        <span class="text-gray-500 flex-shrink-0 w-16">匹配:</span>
+                                        <span :class="result.matched_target ? 'text-green-400' : 'text-yellow-400'"
+                                              x-text="result.matched_target ? '✓ 命中目标' : '✗ 未命中'"></span>
+                                    </div>
+                                    <div class="flex gap-2">
+                                        <span class="text-gray-500 flex-shrink-0 w-16">响应:</span>
+                                        <span class="text-gray-300" x-text="result.response_time_ms + 'ms'"></span>
+                                    </div>
+                                    <div x-show="result.error" class="flex gap-2">
+                                        <span class="text-gray-500 flex-shrink-0 w-16">错误:</span>
+                                        <span class="text-red-400 truncate" x-text="result.error"></span>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
             </div>
 
             <!-- 最近检查历史 -->
@@ -568,11 +951,11 @@
                                 <tr>
                                     <th class="px-4 py-2 text-left text-xs font-medium text-gray-400">状态</th>
                                     <th class="px-4 py-2 text-left text-xs font-medium text-gray-400">项目</th>
-                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-400">分类</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-400 hide-on-mobile">分类</th>
                                     <th class="px-4 py-2 text-left text-xs font-medium text-gray-400">响应时间</th>
-                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-400">状态码</th>
-                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-400">Checker</th>
-                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-400">类型</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-400 hide-on-mobile">状态码</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-400 hide-on-mobile">Checker</th>
+                                    <th class="px-4 py-2 text-left text-xs font-medium text-gray-400 hide-on-mobile">类型</th>
                                     <th class="px-4 py-2 text-left text-xs font-medium text-gray-400">时间</th>
                                 </tr>
                             </thead>
@@ -590,19 +973,19 @@
                                             </span>
                                         </td>
                                         <td class="px-4 py-2 text-gray-200 font-medium" x-text="record.project_name"></td>
-                                        <td class="px-4 py-2 text-gray-400 text-xs" x-text="record.category"></td>
+                                        <td class="px-4 py-2 text-gray-400 text-xs hide-on-mobile" x-text="record.category"></td>
                                         <td class="px-4 py-2 text-gray-300">
                                             <span x-text="record.response_time_ms ? record.response_time_ms.toFixed(0) + 'ms' : '--'"></span>
                                         </td>
-                                        <td class="px-4 py-2">
+                                        <td class="px-4 py-2 hide-on-mobile">
                                             <span class="px-1.5 py-0.5 rounded text-xs"
                                                   :class="record.status_code === 200 ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'"
                                                   x-text="record.status_code || '--'"></span>
                                         </td>
-                                        <td class="px-4 py-2 text-gray-400 text-xs">
+                                        <td class="px-4 py-2 text-gray-400 text-xs hide-on-mobile">
                                             <span class="text-indigo-300">#</span><span x-text="record.checker_id"></span>
                                         </td>
-                                        <td class="px-4 py-2 text-xs">
+                                        <td class="px-4 py-2 text-xs hide-on-mobile">
                                             <span x-show="record.checker_type === 'async_search'" class="px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300">搜索</span>
                                             <span x-show="record.checker_type !== 'async_search'" class="px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300">直接</span>
                                         </td>
@@ -668,6 +1051,34 @@
                             </div>
                         </div>
 
+                        <!-- 异步搜索详情 -->
+                        <div x-show="detailProject.latest.checker_type === 'async_search'" class="search-detail-card rounded-xl p-3">
+                            <p class="text-xs text-cyan-300 font-medium mb-2">🔍 搜索访问详情</p>
+                            <div class="space-y-1 text-xs">
+                                <div class="flex gap-2">
+                                    <span class="text-gray-500 w-20 flex-shrink-0">搜索关键词:</span>
+                                    <span class="text-indigo-300" x-text="detailProject.latest.search_keyword"></span>
+                                </div>
+                                <div class="flex gap-2">
+                                    <span class="text-gray-500 w-20 flex-shrink-0">搜索引擎:</span>
+                                    <span class="text-gray-300" x-text="detailProject.latest.search_engine"></span>
+                                </div>
+                                <div class="flex gap-2">
+                                    <span class="text-gray-500 w-20 flex-shrink-0">搜索结果:</span>
+                                    <span class="text-gray-300" x-text="detailProject.latest.search_result_count + ' 条'"></span>
+                                </div>
+                                <div class="flex gap-2">
+                                    <span class="text-gray-500 w-20 flex-shrink-0">点击结果:</span>
+                                    <span class="text-green-300 truncate" x-text="detailProject.latest.clicked_title || detailProject.latest.clicked_url"></span>
+                                </div>
+                                <div class="flex gap-2">
+                                    <span class="text-gray-500 w-20 flex-shrink-0">目标匹配:</span>
+                                    <span :class="detailProject.latest.matched_target ? 'text-green-400' : 'text-yellow-400'"
+                                          x-text="detailProject.latest.matched_target ? '✓ 命中目标域名' : '✗ 未命中（访问首条）'"></span>
+                                </div>
+                            </div>
+                        </div>
+
                         <div x-show="detailProject.latest.content_check" class="bg-gray-800/50 rounded-xl p-3">
                             <p class="text-xs text-gray-500 mb-2">页面内容检测</p>
                             <div class="flex flex-wrap gap-2">
@@ -721,7 +1132,7 @@
         </div>
 
         <footer class="text-center py-6 text-gray-600 text-xs">
-            <p>AI Health Checker v2.0 · 同步+异步 Agent 分布式监控 · WebSocket 实时推送</p>
+            <p>AI Health Checker v2.1 · 同步+异步 Agent 分布式监控 · WebSocket 实时推送</p>
         </footer>
     </div>
 
@@ -736,6 +1147,7 @@
                 asyncLatest: {},
                 history: [],
                 loading: false,
+                savingConfig: false,
                 lastUpdate: '--:--:--',
                 filterCategory: 'all',
                 showDetailModal: false,
@@ -743,6 +1155,22 @@
                 miniChartCache: {},
                 historyCache: {},
                 autoRefreshTimer: null,
+                healthInfo: {},
+                liveLogs: [],
+                checkerWorkload: {},
+
+                // Toast
+                toasts: [],
+                _toastId: 0,
+
+                // 确认弹窗
+                confirmDialog: {
+                    show: false,
+                    title: '',
+                    message: '',
+                    onConfirm: () => {},
+                    onCancel: () => {},
+                },
 
                 // 配置面板
                 showConfigPanel: false,
@@ -761,6 +1189,9 @@
                     search_engine: 'baidu',
                     project_search_keywords: {},
                 },
+
+                // 原始配置（用于对比）
+                originalConfig: {},
 
                 // 巡检统计
                 inspectionStats: {
@@ -789,6 +1220,21 @@
                     return this.asyncCheckers.filter(a => a.running && !a.paused).length;
                 },
 
+                get workloadList() {
+                    const list = [];
+                    const maxCount = Math.max(...Object.values(this.checkerWorkload).map(w => w?.check_count || 0), 1);
+                    for (let i = 1; i <= 10; i++) {
+                        const w = this.checkerWorkload[i] || { check_count: 0, running: false };
+                        list.push({
+                            id: i,
+                            check_count: w.check_count || 0,
+                            running: w.running,
+                            barHeight: Math.max(5, (w.check_count || 0) / maxCount * 100),
+                        });
+                    }
+                    return list;
+                },
+
                 statusText(status) {
                     const map = { online: '正常', offline: '离线', slow: '较慢', pending: '等待中', unknown: '未知' };
                     return map[status] || status;
@@ -807,6 +1253,33 @@
                     } catch(e) { return '--'; }
                 },
 
+                formatLogTime(iso) {
+                    if (!iso) return '';
+                    try {
+                        const d = new Date(iso);
+                        return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                    } catch(e) { return ''; }
+                },
+
+                showToast(message, type = 'info') {
+                    const id = ++this._toastId;
+                    this.toasts.push({ id, message, type });
+                    setTimeout(() => {
+                        const idx = this.toasts.findIndex(t => t.id === id);
+                        if (idx > -1) this.toasts.splice(idx, 1);
+                    }, 3000);
+                },
+
+                showConfirm(title, message, onConfirm, onCancel) {
+                    this.confirmDialog = {
+                        show: true,
+                        title,
+                        message,
+                        onConfirm: onConfirm || (() => {}),
+                        onCancel: onCancel || (() => {}),
+                    };
+                },
+
                 getMiniChart(projectName) {
                     const history = this.historyCache[projectName] || [];
                     const last3 = history.slice(-3);
@@ -818,10 +1291,60 @@
                     }));
                 },
 
+                // 时间段预设
+                timePresets: {
+                    allday: { start: '00:00', end: '23:59' },
+                    work: { start: '09:00', end: '18:00' },
+                    night: { start: '22:00', end: '06:00' },
+                    peak: { start: '08:00', end: '22:00' },
+                },
+
+                isTimePreset(preset) {
+                    const p = this.timePresets[preset];
+                    if (!p) return false;
+                    return this.config.time_range.start === p.start && this.config.time_range.end === p.end;
+                },
+
+                setTimePreset(preset) {
+                    const p = this.timePresets[preset];
+                    if (p) {
+                        this.config.time_range = { ...p };
+                    }
+                },
+
+                // 搜索词预设模板
+                applyKeywordPreset(type) {
+                    const presets = {
+                        brand: {
+                            desc: '品牌词',
+                            transform: (pname) => [pname, pname + '官网', pname + '官方网站']
+                        },
+                        longtail: {
+                            desc: '长尾词',
+                            transform: (pname) => ['免费' + pname, '在线' + pname, pname + '推荐']
+                        },
+                        product: {
+                            desc: '产品功能',
+                            transform: (pname) => [pname + '功能', pname + '使用教程', pname + '怎么用']
+                        },
+                    };
+                    const preset = presets[type];
+                    if (!preset) return;
+
+                    // 对每个项目应用模板
+                    const newKeywords = {};
+                    for (const pname in this.config.project_search_keywords) {
+                        newKeywords[pname] = preset.transform(pname);
+                    }
+                    this.config.project_search_keywords = newKeywords;
+                    this.showToast(`已应用「${preset.desc}模板」`, 'success');
+                },
+
                 async init() {
                     await this.loadConfig();
                     await this.loadData();
                     await this.loadAsyncCheckers();
+                    await this.loadHealthInfo();
                     this.connectWS();
                     this.startAutoRefresh();
                 },
@@ -844,6 +1367,7 @@
                         if (data.total_inspections_min === undefined) data.total_inspections_min = 0;
                         if (data.total_inspections_max === undefined) data.total_inspections_max = 0;
                         this.config = { ...this.config, ...data };
+                        this.originalConfig = JSON.parse(JSON.stringify(this.config));
                     } catch(e) {
                         console.error('加载配置失败:', e);
                     }
@@ -862,6 +1386,7 @@
                         this.projects = statusRes.projects || {};
                         this.withinTimeRange = statusRes.within_time_range !== false;
                         this.inspectionStats = statusRes.inspection_stats || this.inspectionStats;
+                        this.checkerWorkload = statusRes.checker_workload || {};
                         this.agents = agentsRes.agents || [];
                         this.history = historyRes.records || [];
 
@@ -887,6 +1412,15 @@
                     }
                 },
 
+                async loadHealthInfo() {
+                    try {
+                        const res = await fetch('/api/health');
+                        this.healthInfo = await res.json();
+                    } catch(e) {
+                        // 静默失败
+                    }
+                },
+
                 async loadAsyncCheckers() {
                     try {
                         const res = await fetch('/api/async-checkers');
@@ -906,7 +1440,6 @@
                         this.ws.onopen = () => {
                             this.wsConnected = true;
                             console.log('[WS] 已连接');
-                            // 心跳
                             this._wsPing();
                         };
                         this.ws.onmessage = (e) => {
@@ -951,6 +1484,7 @@
                             cfg.rounds_max = cfg.rounds_per_inspection;
                         }
                         Object.assign(this.config, cfg);
+                        this.originalConfig = JSON.parse(JSON.stringify(this.config));
                         // 异步Checker数量变更时刷新列表
                         if (msg.config.async_checker_count > 0) {
                             this.loadAsyncCheckers();
@@ -969,6 +1503,31 @@
                         // 控制指令
                         this.loadData();
                         this.loadAsyncCheckers();
+                    } else if (msg.type === 'log_init') {
+                        // 初始日志
+                        this.liveLogs = msg.logs || [];
+                    } else if (msg.type === 'log_update') {
+                        // 日志更新
+                        if (msg.log) {
+                            this.liveLogs.push(msg.log);
+                            if (this.liveLogs.length > 100) {
+                                this.liveLogs = this.liveLogs[-100:];
+                            }
+                        }
+                    }
+                },
+
+                handleToggleInspection() {
+                    if (!this.config.inspection_enabled) {
+                        // 启动，直接执行
+                        this.toggleInspection();
+                    } else {
+                        // 停止，需要确认
+                        this.showConfirm(
+                            '确认停止巡检？',
+                            '停止后所有Checker将暂停运行，直到重新启动。',
+                            () => this.toggleInspection()
+                        );
                     }
                 },
 
@@ -981,12 +1540,23 @@
                             body: JSON.stringify({ action }),
                         });
                         this.config.inspection_enabled = action === 'start';
+                        this.showToast(action === 'start' ? '巡检已启动' : '巡检已停止', action === 'start' ? 'success' : 'info');
                     } catch(e) {
                         console.error('切换巡检状态失败:', e);
+                        this.showToast('操作失败: ' + e.message, 'error');
                     }
                 },
 
+                handleCheckAll() {
+                    this.showConfirm(
+                        '确认立即检查所有项目？',
+                        '这将触发所有项目的立即检查，可能需要一点时间。',
+                        () => this.checkAll()
+                    );
+                },
+
                 async saveConfig() {
+                    this.savingConfig = true;
                     try {
                         const res = await fetch('/api/config', {
                             method: 'POST',
@@ -996,12 +1566,43 @@
                         const data = await res.json();
                         if (data.config) {
                             this.config = data.config;
+                            this.originalConfig = JSON.parse(JSON.stringify(this.config));
                         }
-                        alert('配置已保存并生效');
+                        const changed = data.changed || [];
+                        if (changed.length > 0) {
+                            this.showToast(`配置已保存（变更 ${changed.length} 项）`, 'success');
+                        } else {
+                            this.showToast('配置无变化', 'info');
+                        }
                     } catch(e) {
                         console.error('保存配置失败:', e);
-                        alert('保存配置失败: ' + e.message);
+                        this.showToast('保存配置失败: ' + e.message, 'error');
+                    } finally {
+                        this.savingConfig = false;
                     }
+                },
+
+                async resetConfig() {
+                    this.showConfirm(
+                        '恢复默认配置？',
+                        '所有配置将恢复为默认值，此操作不可撤销。',
+                        async () => {
+                            try {
+                                const res = await fetch('/api/config/reset', { method: 'POST' });
+                                const data = await res.json();
+                                if (data.config) {
+                                    this.config = data.config;
+                                    this.originalConfig = JSON.parse(JSON.stringify(this.config));
+                                }
+                                this.showToast('已恢复默认配置', 'success');
+                                this.loadData();
+                                this.loadAsyncCheckers();
+                            } catch(e) {
+                                console.error('恢复默认失败:', e);
+                                this.showToast('恢复失败: ' + e.message, 'error');
+                            }
+                        }
+                    );
                 },
 
                 updateKeyword(projectName, index, value) {
@@ -1041,18 +1642,21 @@
                         await fetch('/api/check/' + encodeURIComponent(projectName), { method: 'POST' });
                         await this.loadData();
                         await this.showDetail(projectName);
+                        this.showToast('检查完成', 'success');
                     } catch(e) {
                         console.error('检查失败:', e);
+                        this.showToast('检查失败: ' + e.message, 'error');
                     }
                 },
 
                 async checkAll() {
-                    if (!confirm('确定要立即检查所有项目吗？这可能需要一点时间。')) return;
                     try {
                         await fetch('/api/check-all', { method: 'POST' });
                         await this.loadData();
+                        this.showToast('全部检查完成', 'success');
                     } catch(e) {
                         console.error('批量检查失败:', e);
+                        this.showToast('检查失败: ' + e.message, 'error');
                     }
                 },
 
@@ -1060,6 +1664,7 @@
                     if (this.autoRefreshTimer) clearInterval(this.autoRefreshTimer);
                     this.autoRefreshTimer = setInterval(() => {
                         this.loadData();
+                        this.loadHealthInfo();
                         if (this.config.async_checker_count > 0) {
                             this.loadAsyncCheckers();
                         }
