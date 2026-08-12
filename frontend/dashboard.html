@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Health Checker - 站点健康监控 v2.1</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.3/dist/cdn.min.js"></script>
     <style>
         * { scrollbar-width: thin; scrollbar-color: #3b3b5c #1a1a2e; }
         ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -254,7 +254,7 @@
                         <h1 class="text-xl font-bold gradient-text">AI Health Checker</h1>
                         <p class="text-xs text-gray-500">
                             <span x-text="agentsRunning">0</span> 同步 + <span x-text="asyncAgentsRunning">0</span> 异步 Agent · 
-                            <span x-text="Object.keys(projects).length">0</span> 个项目
+                            <span x-text="(projects ? Object.keys(projects).length : 0)">0</span> 个项目
                         </p>
                     </div>
                 </div>
@@ -310,7 +310,7 @@
                 </div>
                 <div class="flex items-center gap-4 flex-wrap">
                     <span class="text-gray-500">
-                        巡检时间段: <span class="text-indigo-300" x-text="config.time_range?.start + ' - ' + config.time_range?.end"></span>
+                        巡检时间段: <span class="text-indigo-300" x-text="(config.time_range ? config.time_range.start : '00:00') + ' - ' + (config.time_range ? config.time_range.end : '23:59')"></span>
                     </span>
                     <span x-show="!withinTimeRange && config.inspection_enabled" class="text-yellow-400">
                         ⏸ 当前不在巡检时段
@@ -1511,7 +1511,7 @@
                         if (msg.log) {
                             this.liveLogs.push(msg.log);
                             if (this.liveLogs.length > 100) {
-                                this.liveLogs = this.liveLogs[-100:];
+                                this.liveLogs = this.liveLogs.slice(-100);
                             }
                         }
                     }
