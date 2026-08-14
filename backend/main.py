@@ -72,7 +72,7 @@ class ConfigUpdateRequest(BaseModel):
     rounds_interval_seconds: int | None = Field(default=None, ge=1, le=60)
     total_inspections_min: int | None = Field(default=None, ge=0, le=100)
     total_inspections_max: int | None = Field(default=None, ge=0, le=100)
-    async_checker_count: int | None = Field(default=None, ge=0, le=20)
+    async_checker_count: int | None = Field(default=None, ge=0, le=30)
     search_engine: str | None = None
     project_search_keywords: dict | None = None
     # 向后兼容：旧字段
