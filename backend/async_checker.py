@@ -575,9 +575,8 @@ class AsyncCheckerManager:
             for i in range(target_count - current):
                 checker_id = cls._next_id
                 cls._next_id += 1
-                # 轮询分配项目
-                idx = (checker_id - 100) % len(projects)
-                assigned_projects = [projects[idx]]  # 每个异步Checker先分配1个项目
+                # 每个异步Checker负责全部项目（随机巡查）
+                assigned_projects = list(projects)
                 checker = AsyncChecker(checker_id, assigned_projects)
                 cls._checkers[checker_id] = checker
                 checker.task = asyncio.create_task(checker.run_loop())
@@ -607,17 +606,14 @@ class AsyncCheckerManager:
             return
         checker_list = list(cls._checkers.values())
         projects = list(PROJECTS)
-        # 轮询分配
-        for i, checker in enumerate(checker_list):
-            assigned = []
-            for j in range(i, len(projects), len(checker_list)):
-                assigned.append(projects[j])
-            checker.projects = assigned if assigned else [projects[i % len(projects)]]
+        # 每个异步Checker负责全部项目（随机巡查模式）
+        for checker in checker_list:
+            checker.projects = list(projects)
 
     @classmethod
     async def set_count(cls, count: int):
         """设置异步Checker数量"""
-        count = max(0, min(20, count))
+        count = max(0, min(30, count))
         async with cls._lock:
             await cls._adjust_checkers(count)
 
