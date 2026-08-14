@@ -35,7 +35,7 @@ DATA_DIR = os.path.join(_this_dir, "data")
 RESULTS_FILE = os.path.join(DATA_DIR, "check_results.json")
 CONFIG_FILE = os.path.join(DATA_DIR, "config.json")
 
-# ========== 10个 Checker 的独立身份 ==========
+# ========== 20个 Checker 的独立身份 ==========
 CHECKER_IDENTITIES = [
     {
         "id": 1, "name": "Chrome-Win10",
@@ -97,6 +97,66 @@ CHECKER_IDENTITIES = [
         "ip_pool": ["58.211.137.148", "117.136.81.145", "117.136.64.11", "223.104.128.200", "120.197.22.130"],
         "type": "mobile",
     },
+    {
+        "id": 11, "name": "Brave-Win10",
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 Brave/1.67",
+        "ip_pool": ["45.33.32.156", "104.131.8.209", "198.211.112.54", "107.170.78.32", "45.56.92.141"],
+        "type": "desktop",
+    },
+    {
+        "id": 12, "name": "Opera-Win11",
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 OPR/111.0.0.0",
+        "ip_pool": ["185.15.56.14", "95.172.42.50", "185.15.56.22", "95.172.42.61", "185.15.56.33"],
+        "type": "desktop",
+    },
+    {
+        "id": 13, "name": "Vivaldi-macOS",
+        "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 Vivaldi/6.7",
+        "ip_pool": ["207.154.232.45", "165.22.178.90", "138.197.12.44", "167.71.55.88", "134.122.77.201"],
+        "type": "desktop",
+    },
+    {
+        "id": 14, "name": "Chrome-Huawei",
+        "user_agent": "Mozilla/5.0 (Linux; Android 12; HarmonyOS; ALN-AL10) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36",
+        "ip_pool": ["120.244.130.12", "36.152.44.96", "101.89.15.78", "222.73.144.220", "117.144.210.186"],
+        "type": "mobile",
+    },
+    {
+        "id": 15, "name": "Safari-iPhone15",
+        "user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
+        "ip_pool": ["17.250.90.45", "17.57.144.200", "17.168.100.88", "17.85.128.67", "17.188.200.150"],
+        "type": "mobile",
+    },
+    {
+        "id": 16, "name": "Edge-macOS",
+        "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 Edg/126.0.0.0",
+        "ip_pool": ["54.183.202.199", "52.52.46.215", "13.52.134.88", "54.176.148.200", "54.67.120.55"],
+        "type": "desktop",
+    },
+    {
+        "id": 17, "name": "Chrome-Xiaomi",
+        "user_agent": "Mozilla/5.0 (Linux; Android 14; 23113RKC6C) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36",
+        "ip_pool": ["111.206.11.88", "221.217.52.150", "123.58.176.67", "182.61.130.94", "114.113.196.45"],
+        "type": "mobile",
+    },
+    {
+        "id": 18, "name": "Firefox-macOS",
+        "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14.5; rv:127.0) Gecko/20100101 Firefox/127.0",
+        "ip_pool": ["151.101.128.10", "199.232.18.10", "151.101.66.10", "199.232.82.10", "151.101.2.10"],
+        "type": "desktop",
+    },
+    {
+        "id": 19, "name": "Chrome-OPPO",
+        "user_agent": "Mozilla/5.0 (Linux; Android 14; PHZ110) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36",
+        "ip_pool": ["60.174.12.88", "112.28.168.55", "117.66.138.44", "223.240.11.77", "36.57.252.66"],
+        "type": "mobile",
+    },
+    {
+        "id": 20, "name": "Yandex-Linux",
+        "user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 YaBrowser/24.6.0",
+        "ip_pool": ["178.154.170.45", "178.154.171.88", "2a02:6b8::111", "5.255.250.131", "100.43.80.45"],
+        "type": "desktop",
+    },
 ]
 
 # ========== 异步Checker 身份池（独立于同步Checker） ==========
@@ -121,6 +181,16 @@ ASYNC_CHECKER_IDENTITIES = [
     {"user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0", "type": "desktop"},
     {"user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36", "type": "desktop"},
     {"user_agent": "Mozilla/5.0 (Linux; Android 14; OnePlus 12) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36", "type": "mobile"},
+    {"user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36", "type": "desktop"},
+    {"user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15", "type": "desktop"},
+    {"user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36", "type": "desktop"},
+    {"user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0", "type": "desktop"},
+    {"user_agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/126.0.6478.118 Mobile/15E148 Safari/604.1", "type": "mobile"},
+    {"user_agent": "Mozilla/5.0 (Linux; Android 14; SM-S928U1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36", "type": "mobile"},
+    {"user_agent": "Mozilla/5.0 (iPad; CPU OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15", "type": "tablet"},
+    {"user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 Edg/126.0.0.0", "type": "desktop"},
+    {"user_agent": "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36", "type": "mobile"},
+    {"user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36", "type": "desktop"},
 ]
 
 
@@ -140,10 +210,8 @@ def get_project_by_name(name: str) -> dict | None:
 
 
 def assign_projects_to_checkers():
-    assignments = {i + 1: [] for i in range(10)}
-    for idx, project in enumerate(PROJECTS):
-        checker_id = (idx % 10) + 1
-        assignments[checker_id].append(project)
+    """每个Checker负责全部项目（随机巡查模式）"""
+    assignments = {i["id"]: list(PROJECTS) for i in CHECKER_IDENTITIES}
     return assignments
 
 
@@ -369,7 +437,7 @@ class RuntimeConfig:
         if "async_checker_count" in data:
             try:
                 v = int(data["async_checker_count"])
-                self.async_checker_count = max(0, min(20, v))
+                self.async_checker_count = max(0, min(30, v))
             except (ValueError, TypeError):
                 pass
 
