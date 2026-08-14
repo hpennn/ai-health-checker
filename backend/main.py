@@ -32,7 +32,7 @@ FRONTEND_PATH = os.path.join(
 )
 
 # 版本号
-APP_VERSION = "2.1.0"
+APP_VERSION = "2.2.0"
 
 
 # ========== 请求模型（带严格校验） ==========
