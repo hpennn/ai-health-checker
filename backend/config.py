@@ -7,23 +7,36 @@ from datetime import datetime
 
 # ========== 监控项目列表 ==========
 PROJECTS = [
+    # === zhinenti.cn 系列 ===
     {"name": "智能工作台", "url": "https://www.zhinenti.cn", "category": "AI工具"},
     {"name": "部署助手", "url": "https://deploy.zhinenti.cn", "category": "AI工具"},
     {"name": "营销助手", "url": "https://craft.zhinenti.cn", "category": "AI工具"},
     {"name": "智能部署", "url": "https://auto.zhinenti.cn", "category": "AI工具"},
-    {"name": "AI客服管理", "url": "http://47.113.216.237:8600", "category": "AI工具"},
-    {"name": "起名工具", "url": "https://www.hpenn.online", "category": "AI工具"},
-    {"name": "导航站", "url": "https://www.hpennn.online", "category": "工具"},
-    {"name": "OCR识别", "url": "https://ocr.hpenn.xyz", "category": "工具"},
-    {"name": "AI简历", "url": "https://resume.hpenn.xyz", "category": "工具"},
-    {"name": "图片工具", "url": "https://www.kuaisutupo.xyz", "category": "工具"},
-    {"name": "文档摘要", "url": "https://doc.hpenn.xyz", "category": "工具"},
-    {"name": "文档转换", "url": "https://convert.hpenn.xyz", "category": "工具"},
-    {"name": "文本工具", "url": "https://www.hpenn.xyz", "category": "工具"},
-    {"name": "开发工具", "url": "https://www.hpennn.xyz", "category": "工具"},
+    # === zhinenti.vip / xyz ===
     {"name": "祝福生成", "url": "https://www.zhinenti.vip", "category": "工具"},
     {"name": "AI文案", "url": "https://www.zhinenti.xyz", "category": "AI工具"},
+    # === hpenn.online ===
+    {"name": "起名工具", "url": "https://www.hpenn.online", "category": "AI工具"},
+    # === hpenn.xyz 系列 ===
+    {"name": "文本工具", "url": "https://www.hpenn.xyz", "category": "工具"},
+    {"name": "OCR识别", "url": "https://ocr.hpenn.xyz", "category": "工具"},
+    {"name": "AI简历", "url": "https://resume.hpenn.xyz", "category": "工具"},
+    {"name": "文档摘要", "url": "https://doc.hpenn.xyz", "category": "工具"},
+    {"name": "文档转换", "url": "https://convert.hpenn.xyz", "category": "工具"},
     {"name": "批量图片编辑", "url": "https://imgedit.hpenn.xyz", "category": "工具"},
+    {"name": "图片尺寸", "url": "https://imgsize.hpenn.xyz", "category": "工具"},
+    {"name": "表格工具", "url": "https://table.hpenn.xyz", "category": "工具"},
+    # === hpennn.xyz 系列 ===
+    {"name": "开发工具", "url": "https://www.hpennn.xyz", "category": "工具"},
+    {"name": "导航站", "url": "https://www.hpennn.online", "category": "工具"},
+    {"name": "智能搜索", "url": "https://smart.hpennn.xyz", "category": "工具"},
+    {"name": "PPT工具", "url": "https://ppt.hpennn.xyz", "category": "工具"},
+    {"name": "内容生成", "url": "https://content.hpennn.xyz", "category": "AI工具"},
+    # === kuaisu 系列 ===
+    {"name": "图片工具", "url": "https://www.kuaisutupo.xyz", "category": "工具"},
+    {"name": "快速工具", "url": "https://www.kuaisu.online", "category": "工具"},
+    # === IP直连（不推送IndexNow） ===
+    {"name": "AI客服管理", "url": "http://47.113.216.237:8600", "category": "AI工具"},
 ]
 
 # ========== 检查配置（基础常量） ==========
