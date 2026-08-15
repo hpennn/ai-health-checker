@@ -360,6 +360,11 @@
                             class="px-3 py-1.5 rounded-lg text-sm transition">
                         🔍 异步Checker / 搜索词
                     </button>
+                    <button @click="configTab = 'seo'"
+                            :class="configTab === 'seo' ? 'tab-btn active' : 'text-gray-400 hover:text-gray-200'"
+                            class="px-3 py-1.5 rounded-lg text-sm transition">
+                        🚀 SEO推送
+                    </button>
                 </div>
 
                 <!-- 基础配置 -->
@@ -582,6 +587,148 @@
                                         </div>
                                     </div>
                                 </template>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- IndexNow SEO推送 -->
+                <div x-show="configTab === 'seo'" class="space-y-4" x-transition.opacity.duration.200ms>
+                    <!-- IndexNow 状态卡片 -->
+                    <div class="glass rounded-2xl p-5">
+                        <div class="flex items-center gap-3 mb-4">
+                            <div class="w-11 h-11 rounded-xl bg-purple-500/15 flex items-center justify-center">
+                                <svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                                </svg>
+                            </div>
+                            <div>
+                                <h3 class="text-base font-semibold text-white">IndexNow 推送状态</h3>
+                                <p class="text-xs text-gray-500">自动向搜索引擎提交最新URL，提升收录效率</p>
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div class="bg-gray-800/40 rounded-xl p-3">
+                                <div class="text-xs text-gray-500 mb-1">API Key</div>
+                                <div class="text-sm font-mono text-purple-300" x-text="indexnowInfo ? (indexnowInfo.api_key ? indexnowInfo.api_key.slice(0, 8) + '...' : '未配置') : '加载中...'">加载中...</div>
+                            </div>
+                            <div class="bg-gray-800/40 rounded-xl p-3">
+                                <div class="text-xs text-gray-500 mb-1">推送间隔</div>
+                                <div class="text-sm text-white" x-text="indexnowInfo ? (indexnowInfo.interval_hours ? indexnowInfo.interval_hours + ' 小时' : '未设置') : '—'">—</div>
+                            </div>
+                            <div class="bg-gray-800/40 rounded-xl p-3">
+                                <div class="text-xs text-gray-500 mb-1">上次推送</div>
+                                <div class="text-sm text-white" x-text="indexnowInfo && indexnowInfo.last_push ? indexnowInfo.last_push : '暂无记录'">暂无记录</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 验证文件部署提示 -->
+                    <div class="glass rounded-2xl p-5">
+                        <div class="flex items-start gap-3">
+                            <div class="w-10 h-10 rounded-xl bg-amber-500/15 flex items-center justify-center flex-shrink-0">
+                                <svg class="w-5 h-5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+                                </svg>
+                            </div>
+                            <div class="flex-1">
+                                <h3 class="text-base font-semibold text-white mb-2">验证文件部署</h3>
+                                <p class="text-xs text-gray-400 mb-3">IndexNow 需要在每个域名根目录下放置验证文件以证明所有权。</p>
+                                <div x-show="indexnowInfo && indexnowInfo.api_key" class="bg-gray-800/50 rounded-lg p-3 font-mono text-xs text-cyan-300 break-all">
+                                    文件名: <span x-text="indexnowInfo.api_key + '.txt'"></span><br>
+                                    文件内容: <span x-text="indexnowInfo.api_key"></span>
+                                </div>
+                                <p x-show="!indexnowInfo || !indexnowInfo.api_key" class="text-xs text-gray-500">
+                                    等待 API Key 加载...
+                                </p>
+                                <p class="text-xs text-gray-500 mt-2">
+                                    部署完成后，将文件上传到每个项目域名的根目录（如 https://example.com/xxx.txt）
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 手动推送按钮 -->
+                    <div class="glass rounded-2xl p-5">
+                        <div class="flex items-center justify-between gap-4 flex-wrap">
+                            <div>
+                                <h3 class="text-base font-semibold text-white">手动触发推送</h3>
+                                <p class="text-xs text-gray-500 mt-1">立即将所有项目URL推送到搜索引擎</p>
+                            </div>
+                            <button @click="triggerIndexNowPush()"
+                                    :disabled="indexnowPushing"
+                                    class="px-5 py-2.5 rounded-xl text-sm font-medium transition-all
+                                           bg-gradient-to-r from-purple-600 to-pink-600 text-white
+                                           hover:from-purple-500 hover:to-pink-500
+                                           disabled:opacity-50 disabled:cursor-not-allowed
+                                           shadow-lg shadow-purple-500/20">
+                                <span x-show="!indexnowPushing">🚀 立即推送全部项目URL</span>
+                                <span x-show="indexnowPushing">⏳ 推送中...</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 推送历史列表 -->
+                    <div class="glass rounded-2xl p-5">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-base font-semibold text-white">推送历史</h3>
+                            <span class="text-xs text-gray-500" x-text="indexnowHistory.length + ' 条记录'">0 条记录</span>
+                        </div>
+                        <div x-show="indexnowHistory.length === 0" class="text-center py-8 text-gray-500 text-sm">
+                            暂无推送记录
+                        </div>
+                        <div x-show="indexnowHistory.length > 0" class="space-y-2 max-h-64 overflow-y-auto pr-1">
+                            <template x-for="record in indexnowHistory" :key="record.domain + record.time">
+                                <div class="flex items-center justify-between bg-gray-800/30 rounded-xl px-4 py-3">
+                                    <div class="flex items-center gap-3 min-w-0">
+                                        <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                                             :class="record.status === 'success' ? 'bg-green-500/15' : 'bg-red-500/15'">
+                                            <svg x-show="record.status === 'success'" class="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                                            </svg>
+                                            <svg x-show="record.status !== 'success'" class="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                            </svg>
+                                        </div>
+                                        <div class="min-w-0">
+                                            <div class="text-sm text-white truncate" x-text="record.domain">—</div>
+                                            <div class="text-xs text-gray-500" x-text="record.url_count + ' 个URL'">—</div>
+                                        </div>
+                                    </div>
+                                    <div class="text-right flex-shrink-0 ml-3">
+                                        <div class="text-xs font-medium"
+                                             :class="record.status === 'success' ? 'text-green-400' : 'text-red-400'"
+                                             x-text="record.status === 'success' ? '成功' : '失败'">—</div>
+                                        <div class="text-xs text-gray-600" x-text="record.time">—</div>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+
+                    <!-- 搜索引擎覆盖说明 -->
+                    <div class="glass rounded-2xl p-5">
+                        <div class="flex items-start gap-3">
+                            <div class="w-10 h-10 rounded-xl bg-blue-500/15 flex items-center justify-center flex-shrink-0">
+                                <svg class="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                            </div>
+                            <div>
+                                <h3 class="text-base font-semibold text-white mb-2">搜索引擎覆盖</h3>
+                                <p class="text-xs text-gray-400 leading-relaxed">
+                                    IndexNow 是一个开放协议，一次提交即可通知多家搜索引擎。
+                                </p>
+                                <div class="flex flex-wrap gap-2 mt-3">
+                                    <span class="px-2.5 py-1 rounded-md bg-blue-500/15 text-blue-300 text-xs font-medium">Bing</span>
+                                    <span class="px-2.5 py-1 rounded-md bg-red-500/15 text-red-300 text-xs font-medium">Yandex</span>
+                                    <span class="px-2.5 py-1 rounded-md bg-green-500/15 text-green-300 text-xs font-medium">Seznam</span>
+                                    <span class="px-2.5 py-1 rounded-md bg-purple-500/15 text-purple-300 text-xs font-medium">DuckDuckGo</span>
+                                    <span class="px-2.5 py-1 rounded-md bg-yellow-500/15 text-yellow-300 text-xs font-medium">+ 更多</span>
+                                </div>
+                                <p class="text-xs text-gray-600 mt-2">
+                                    协议来源: indexnow.org · 提交后搜索引擎会在数小时内抓取并评估URL
+                                </p>
                             </div>
                         </div>
                     </div>
@@ -1159,6 +1306,11 @@
                 liveLogs: [],
                 checkerWorkload: {},
 
+                // IndexNow SEO 推送
+                indexnowInfo: null,
+                indexnowHistory: [],
+                indexnowPushing: false,
+
                 // Toast
                 toasts: [],
                 _toastId: 0,
@@ -1345,6 +1497,7 @@
                     await this.loadData();
                     await this.loadAsyncCheckers();
                     await this.loadHealthInfo();
+                    this.loadIndexNowInfo();
                     this.connectWS();
                     this.startAutoRefresh();
                 },
@@ -1430,6 +1583,40 @@
                     } catch(e) {
                         // 静默失败，可能是旧版本后端
                     }
+                },
+
+                async loadIndexNowInfo() {
+                    try {
+                        const resp = await fetch('/api/indexnow/verify');
+                        if (resp.ok) {
+                            this.indexnowInfo = await resp.json();
+                        }
+                    } catch(e) { console.error('loadIndexNowInfo error:', e); }
+                    try {
+                        const resp2 = await fetch('/api/indexnow/history');
+                        if (resp2.ok) {
+                            this.indexnowHistory = await resp2.json();
+                        }
+                    } catch(e) { console.error('loadIndexNowHistory error:', e); }
+                },
+
+                async triggerIndexNowPush() {
+                    if (this.indexnowPushing) return;
+                    this.indexnowPushing = true;
+                    this.showToast('正在推送URL到搜索引擎...', 'info');
+                    try {
+                        const resp = await fetch('/api/indexnow/push', { method: 'POST' });
+                        const data = await resp.json();
+                        if (data.success !== false) {
+                            this.showToast(`推送完成: 成功${data.success_count || 0}个域名`, 'success');
+                            this.loadIndexNowInfo();
+                        } else {
+                            this.showToast('推送失败: ' + (data.error || '未知错误'), 'error');
+                        }
+                    } catch(e) {
+                        this.showToast('推送异常: ' + e.message, 'error');
+                    }
+                    this.indexnowPushing = false;
                 },
 
                 connectWS() {
