@@ -1595,7 +1595,8 @@
                     try {
                         const resp2 = await fetch('/api/indexnow/history');
                         if (resp2.ok) {
-                            this.indexnowHistory = await resp2.json();
+                            const historyData = await resp2.json();
+                            this.indexnowHistory = historyData.records || [];
                         }
                     } catch(e) { console.error('loadIndexNowHistory error:', e); }
                 },
