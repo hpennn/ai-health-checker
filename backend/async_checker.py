@@ -246,6 +246,7 @@ class AsyncChecker:
             "response_time_ms": None,
             "content_length": 0,
             "title_text": "",
+            "html": "",
             "error": None,
         }
 
@@ -256,6 +257,7 @@ class AsyncChecker:
             result["status_code"] = resp.status_code
             result["response_time_ms"] = round(elapsed * 1000, 2)
             html = resp.text
+            result["html"] = html
             result["content_length"] = len(html)
             title_match = re.search(r"<title[^>]*>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
             if title_match:
@@ -287,6 +289,71 @@ class AsyncChecker:
 
         return result
 
+    def _check_seo_meta(self, html: str) -> dict:
+        """解析 HTML 中的 SEO 元数据
+
+        返回:
+            {
+                "has_title": bool,
+                "title_text": str,
+                "has_description": bool,
+                "description_text": str,
+                "canonical_url": str,
+            }
+        """
+        result = {
+            "has_title": False,
+            "title_text": "",
+            "has_description": False,
+            "description_text": "",
+            "canonical_url": "",
+        }
+
+        if not html:
+            return result
+
+        # 提取 title
+        title_match = re.search(r"<title[^>]*>(.*?)</title>", html, re.IGNORECASE | re.DOTALL)
+        if title_match:
+            title_text = title_match.group(1).strip()
+            result["has_title"] = bool(title_text)
+            result["title_text"] = title_text[:200]
+
+        # 提取 meta description
+        desc_match = re.search(
+            r'<meta[^>]+name\s*=\s*["\']description["\'][^>]+content\s*=\s*["\']([^"\']+)["\']',
+            html,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if not desc_match:
+            # 尝试另一种顺序：content 在前，name 在后
+            desc_match = re.search(
+                r'<meta[^>]+content\s*=\s*["\']([^"\']+)["\'][^>]+name\s*=\s*["\']description["\']',
+                html,
+                re.IGNORECASE | re.DOTALL,
+            )
+        if desc_match:
+            desc_text = desc_match.group(1).strip()
+            result["has_description"] = bool(desc_text)
+            result["description_text"] = desc_text[:300]
+
+        # 提取 canonical URL
+        canonical_match = re.search(
+            r'<link[^>]+rel\s*=\s*["\']canonical["\'][^>]+href\s*=\s*["\']([^"\']+)["\']',
+            html,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if not canonical_match:
+            canonical_match = re.search(
+                r'<link[^>]+href\s*=\s*["\']([^"\']+)["\'][^>]+rel\s*=\s*["\']canonical["\']',
+                html,
+                re.IGNORECASE | re.DOTALL,
+            )
+        if canonical_match:
+            result["canonical_url"] = canonical_match.group(1).strip()[:500]
+
+        return result
+
     async def check_project(self, project: dict) -> dict:
         """通过搜索引擎+关键词访问方式检测项目"""
         self.current_task = f"搜索访问: {project['name']}"
@@ -311,6 +378,18 @@ class AsyncChecker:
             "clicked_title": "",  # 点击的搜索结果标题
             "matched_target": False,  # 是否匹配到目标域名
             "content_check": {},
+            "seo_check": {
+                "has_title": False,
+                "has_description": False,
+                "title_text": "",
+                "description_text": "",
+                "canonical_url": "",
+            },
+            "deep_visit": {
+                "visited_homepage": False,
+                "homepage_status": None,
+                "homepage_response_time": None,
+            },
             "error": None,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
@@ -374,6 +453,54 @@ class AsyncChecker:
                 "title_text": visit_result["title_text"],
                 "has_title": bool(visit_result["title_text"]),
             }
+
+            # 第三步补充：SEO 元数据检查
+            if visit_result["html"]:
+                result["seo_check"] = self._check_seo_meta(visit_result["html"])
+
+            # 第四步：深度访问项目首页（当搜索命中的不是目标项目首页时）
+            if not result["matched_target"] and not visit_result["error"]:
+                homepage_url = project["url"].rstrip("/") + "/"
+                # 模拟更完整的爬虫行为：随机延迟 2-5 秒
+                deep_delay = random.uniform(2, 5)
+                logging.getLogger("health_checker").debug(
+                    f"[AsyncChecker-{self.id}] 深度访问首页前延迟 {deep_delay:.1f}s"
+                )
+                await self._sleep_interruptible(deep_delay)
+
+                try:
+                    async with httpx.AsyncClient(
+                        headers=self._build_headers(referer=click_url),
+                        timeout=REQUEST_TIMEOUT,
+                        follow_redirects=True,
+                        verify=True,
+                    ) as deep_client:
+                        deep_start = time.time()
+                        deep_resp = await deep_client.get(homepage_url)
+                        deep_elapsed = round((time.time() - deep_start) * 1000, 2)
+
+                        result["deep_visit"] = {
+                            "visited_homepage": True,
+                            "homepage_status": deep_resp.status_code,
+                            "homepage_response_time": deep_elapsed,
+                        }
+
+                        # 对首页也做 SEO 元数据检查（覆盖第三步的SEO结果，以首页为准）
+                        if deep_resp.status_code == 200:
+                            homepage_html = deep_resp.text
+                            homepage_seo = self._check_seo_meta(homepage_html)
+                            result["seo_check"] = homepage_seo
+
+                except Exception as de:
+                    result["deep_visit"] = {
+                        "visited_homepage": True,
+                        "homepage_status": None,
+                        "homepage_response_time": None,
+                        "error": str(de)[:80],
+                    }
+                    logging.getLogger("health_checker").warning(
+                        f"[AsyncChecker-{self.id}] 深度访问首页失败: {de}"
+                    )
 
             if visit_result["error"]:
                 result["status"] = "offline"
