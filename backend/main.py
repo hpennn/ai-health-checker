@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from checker import CheckerManager
 from async_checker import AsyncCheckerManager
+from indexnow_pusher import IndexNowPusher
 from config import PROJECTS, RuntimeConfig, get_project_by_name
 
 logger = logging.getLogger("health_checker")
@@ -32,7 +33,7 @@ FRONTEND_PATH = os.path.join(
 )
 
 # 版本号
-APP_VERSION = "2.2.0"
+APP_VERSION = "2.3.0"
 
 
 # ========== 请求模型（带严格校验） ==========
@@ -108,6 +109,7 @@ class ConfigUpdateRequest(BaseModel):
 
 # ========== 全局任务 ==========
 _time_range_task = None
+_indexnow_pusher: IndexNowPusher | None = None
 
 
 async def time_range_monitor():
@@ -179,6 +181,15 @@ async def lifespan(app: FastAPI):
     global _time_range_task
     _time_range_task = asyncio.create_task(time_range_monitor())
 
+    # 启动 IndexNow 推送器
+    global _indexnow_pusher
+    _indexnow_pusher = IndexNowPusher(PROJECTS)
+    _indexnow_pusher.start()
+    logger.info(
+        f"[IndexNow] 推送器已启动，间隔 {_indexnow_pusher.interval_hours}h，"
+        f"密钥文件: {_indexnow_pusher.key_filename}"
+    )
+
     logger.info(f"AI Health Checker v{APP_VERSION} 启动完成")
     yield
 
@@ -187,6 +198,9 @@ async def lifespan(app: FastAPI):
         _time_range_task.cancel()
     await CheckerManager.stop_all()
     await AsyncCheckerManager.stop_all()
+    if _indexnow_pusher:
+        await _indexnow_pusher.stop()
+        logger.info("[IndexNow] 推送器已停止")
     logger.info("所有 Checker 已停止，服务关闭")
 
 
@@ -512,6 +526,57 @@ async def get_async_checkers():
         "total": len(checkers),
         "checkers": checkers,
         "latest": async_status,
+    }
+
+
+# ========== IndexNow API ==========
+@app.get("/api/indexnow/verify")
+async def indexnow_verify():
+    """获取 IndexNow 验证信息（key, filename, instructions）"""
+    if not _indexnow_pusher:
+        raise HTTPException(status_code=503, detail="IndexNow 推送器未初始化")
+    info = _indexnow_pusher.get_verify_info()
+    return info
+
+
+@app.post("/api/indexnow/push")
+async def indexnow_push():
+    """手动触发一次 IndexNow 推送"""
+    if not _indexnow_pusher:
+        raise HTTPException(status_code=503, detail="IndexNow 推送器未初始化")
+
+    results = await _indexnow_pusher.push_all_engines()
+    success_count = sum(1 for r in results if r["success"])
+    return {
+        "message": f"已完成推送，{success_count}/{len(results)} 个引擎成功",
+        "success_count": success_count,
+        "total_engines": len(results),
+        "results": results,
+    }
+
+
+@app.get("/api/indexnow/history")
+async def indexnow_history(limit: int = 20):
+    """获取 IndexNow 推送历史"""
+    if not _indexnow_pusher:
+        raise HTTPException(status_code=503, detail="IndexNow 推送器未初始化")
+    history = _indexnow_pusher.get_history(limit=limit)
+    return {
+        "total": len(history),
+        "records": history,
+    }
+
+
+@app.post("/api/indexnow/interval")
+async def indexnow_set_interval(hours: int):
+    """设置 IndexNow 推送间隔（小时）"""
+    if not _indexnow_pusher:
+        raise HTTPException(status_code=503, detail="IndexNow 推送器未初始化")
+    result = _indexnow_pusher.set_interval(hours)
+    return {
+        "message": f"推送间隔已更新为 {result['new_interval_hours']} 小时",
+        "old_interval_hours": result["old_interval_hours"],
+        "new_interval_hours": result["new_interval_hours"],
     }
 
 
