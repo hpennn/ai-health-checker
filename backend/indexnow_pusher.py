@@ -59,10 +59,16 @@ class IndexNowPusher:
             "3. 确保通过 http(s)://你的域名/{key_filename} 可以访问到该文件",
             "4. 配置完成后即可开始推送 URL",
         ]
+        last_push = None
+        if self._history:
+            last_push = self._history[-1].get("timestamp", "")
         return {
             "key": self.key,
+            "api_key": self.key,
             "key_filename": self.key_filename,
             "key_content": self.key,
+            "interval_hours": self.interval_hours,
+            "last_push": last_push,
             "instructions": instructions,
             "supported_engines": list(self.SEARCH_ENGINES.keys()),
         }
@@ -254,9 +260,17 @@ class IndexNowPusher:
 
     # ========== 历史记录 ==========
     def get_history(self, limit: int = 20) -> list[dict]:
-        """获取推送历史"""
+        """获取推送历史（前端友好格式）"""
         limit = max(1, min(self._max_history, limit))
-        return list(reversed(self._history[-limit:]))
+        records = []
+        for r in reversed(self._history[-limit:]):
+            records.append({
+                "domain": r.get("engine", "unknown"),
+                "url_count": r.get("urls_count", 0),
+                "status": "success" if r.get("success") else "failed",
+                "time": r.get("timestamp", "")[:19].replace("T", " "),
+            })
+        return records
 
     def get_status(self) -> dict:
         """获取当前状态"""
