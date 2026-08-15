@@ -735,6 +735,113 @@
                 </div>
             </div>
 
+            <!-- SEO推送配置 -->
+            <div x-show="configTab === 'seo'" class="space-y-4">
+                <!-- IndexNow 状态卡片 -->
+                <div class="glass rounded-2xl p-5">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-green-500 to-emerald-600 flex items-center justify-center">
+                            <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 class="text-sm font-bold text-white">IndexNow URL推送</h3>
+                            <p class="text-xs text-gray-400">主动向搜索引擎推送URL，加速收录</p>
+                        </div>
+                    </div>
+
+                    <!-- 搜索引擎覆盖说明 -->
+                    <div class="bg-gray-800/40 rounded-xl p-3 mb-4">
+                        <p class="text-xs text-gray-300 mb-2">🌐 覆盖搜索引擎（一次推送，多引擎同步）</p>
+                        <div class="flex flex-wrap gap-2">
+                            <span class="px-2 py-0.5 bg-blue-500/15 text-blue-400 rounded text-xs">Bing</span>
+                            <span class="px-2 py-0.5 bg-yellow-500/15 text-yellow-400 rounded text-xs">Yandex</span>
+                            <span class="px-2 py-0.5 bg-purple-500/15 text-purple-400 rounded text-xs">Seznam</span>
+                            <span class="px-2 py-0.5 bg-gray-500/15 text-gray-400 rounded text-xs">IndexNow.org 镜像</span>
+                        </div>
+                    </div>
+
+                    <!-- 验证信息 -->
+                    <template x-if="indexnowInfo">
+                        <div class="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 mb-4">
+                            <p class="text-xs text-amber-400 font-semibold mb-1">⚠️ 验证文件部署</p>
+                            <p class="text-xs text-amber-300/80 mb-2">首次使用需在每个站点根目录放置验证文件：</p>
+                            <div class="bg-black/30 rounded-lg p-2 font-mono text-xs text-gray-300 space-y-1">
+                                <p>文件名：<span class="text-green-400" x-text="indexnowInfo.key_filename || ''"></span></p>
+                                <p>文件内容：<span class="text-green-400" x-text="indexnowInfo.key_content || ''"></span></p>
+                                <p>示例路径：<span class="text-blue-400" x-text="'https://www.zhinenti.cn/' + (indexnowInfo.key_filename || '')"></span></p>
+                            </div>
+                            <p class="text-xs text-amber-300/60 mt-2">验证成功后推送才会生效（403错误 = 未部署验证文件）</p>
+                        </div>
+                    </template>
+
+                    <!-- 推送间隔配置 -->
+                    <div class="flex items-center gap-3 mb-4">
+                        <label class="text-xs text-gray-400">推送间隔</label>
+                        <div class="flex items-center gap-2">
+                            <input type="range" min="1" max="168" step="1"
+                                   x-model.number="indexnowInterval"
+                                   @change="updateIndexNowInterval()"
+                                   class="w-24 h-1.5 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500">
+                            <span class="text-xs text-indigo-400 font-mono w-16" x-text="indexnowInterval + 'h'"></span>
+                        </div>
+                    </div>
+
+                    <!-- 手动推送按钮 -->
+                    <button @click="triggerIndexNowPush()"
+                            :disabled="indexnowPushing"
+                            class="w-full py-3 rounded-xl font-semibold text-sm transition-all flex items-center justify-center gap-2"
+                            :class="indexnowPushing ? 'bg-gray-700 text-gray-400 cursor-wait' : 'bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:shadow-lg hover:shadow-green-500/20 active:scale-[0.98]'">
+                        <template x-if="indexnowPushing">
+                            <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                        </template>
+                        <template x-if="!indexnowPushing">
+                            <span>🚀</span>
+                        </template>
+                        <span x-text="indexnowPushing ? '推送中...' : '立即推送全部项目URL'"></span>
+                    </button>
+                </div>
+
+                <!-- 推送历史 -->
+                <div class="glass rounded-2xl p-5">
+                    <h3 class="text-sm font-bold text-white mb-3 flex items-center gap-2">
+                        📋 推送历史
+                        <span class="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/15 text-indigo-400" x-text="(indexnowHistory || []).length + '条记录'"></span>
+                    </h3>
+                    <template x-if="indexnowHistory && indexnowHistory.length > 0">
+                        <div class="space-y-2 max-h-60 overflow-y-auto">
+                            <template x-for="(record, idx) in indexnowHistory.slice().reverse().slice(0, 10)" :key="idx">
+                                <div class="bg-gray-800/40 rounded-lg p-3">
+                                    <div class="flex items-center justify-between mb-1">
+                                        <span class="text-xs font-medium" :class="record.success_count > 0 ? 'text-green-400' : 'text-red-400'"
+                                              x-text="(record.success_count > 0 ? '✅ 成功' : '❌ 失败') + ' ' + (record.total_domains || 0) + '个域名'">
+                                        </span>
+                                        <span class="text-[10px] text-gray-500" x-text="record.pushed_at ? new Date(record.pushed_at).toLocaleString('zh-CN') : ''"></span>
+                                    </div>
+                                    <template x-if="record.results">
+                                        <div class="flex flex-wrap gap-1 mt-1">
+                                            <template x-for="r in record.results" :key="r.domain">
+                                                <span class="px-1.5 py-0.5 rounded text-[10px]"
+                                                      :class="r.success ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'"
+                                                      x-text="(r.success ? '✓' : '✗') + ' ' + r.domain">
+                                                </span>
+                                            </template>
+                                        </div>
+                                    </template>
+                                </div>
+                            </template>
+                        </div>
+                    </template>
+                    <template x-if="!indexnowHistory || indexnowHistory.length === 0">
+                        <p class="text-xs text-gray-500 text-center py-4">暂无推送记录</p>
+                    </template>
+                </div>
+            </div>
+
             <!-- 总览统计 + 今日进度 -->
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                 <div class="glass rounded-2xl p-4">
@@ -1305,6 +1412,11 @@
                 healthInfo: {},
                 liveLogs: [],
                 checkerWorkload: {},
+                // IndexNow SEO 推送
+                indexnowInfo: null,
+                indexnowHistory: [],
+                indexnowPushing: false,
+                indexnowInterval: 24,
 
                 // IndexNow SEO 推送
                 indexnowInfo: null,
