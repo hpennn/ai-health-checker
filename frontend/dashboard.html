@@ -365,6 +365,11 @@
                             class="px-3 py-1.5 rounded-lg text-sm transition">
                         🚀 SEO推送
                     </button>
+                    <button @click="configTab = 'browser'; loadBrowserStatus()"
+                            :class="configTab === 'browser' ? 'tab-btn active' : 'text-gray-400 hover:text-gray-200'"
+                            class="px-3 py-1.5 rounded-lg text-sm transition">
+                        🌐 浏览器巡检
+                    </button>
                 </div>
 
                 <!-- 基础配置 -->
@@ -731,6 +736,52 @@
                                 </p>
                             </div>
                         </div>
+                    </div>
+                </div>
+
+                <!-- 浏览器巡检面板 -->
+                <div x-show="configTab === 'browser'" class="space-y-4" x-transition.opacity.duration.200ms>
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h3 class="text-sm font-medium text-gray-200">🌐 浏览器深度巡检</h3>
+                            <p class="text-xs text-gray-500 mt-1">Playwright Chromium 模拟真实用户访问，检测页面渲染、JS 错误、Service Worker</p>
+                        </div>
+                        <button @click="loadBrowserStatus()" class="text-xs px-3 py-1.5 rounded-lg input-field hover:border-indigo-500/40">
+                            刷新状态
+                        </button>
+                    </div>
+
+                    <div class="flex items-center gap-2 text-xs">
+                        <span class="px-2 py-1 rounded-full"
+                              :class="browserStatus.browser_checker_available ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'"
+                              x-text="browserStatus.browser_checker_available ? '✓ Chromium 就绪' : '✗ Chromium 不可用'">
+                        </span>
+                    </div>
+
+                    <!-- 各项目浏览器检查结果 -->
+                    <div x-show="Object.keys(browserStatus.projects || {}).length > 0" class="space-y-2 max-h-80 overflow-y-auto pr-1">
+                        <template x-for="[name, data] in Object.entries(browserStatus.projects || {})" :key="name">
+                            <div class="bg-gray-800/40 rounded-lg p-3 flex items-center justify-between">
+                                <div class="flex-1 min-w-0">
+                                    <p class="text-sm text-gray-200 truncate" x-text="name"></p>
+                                    <div class="flex flex-wrap gap-2 mt-1 text-xs">
+                                        <span x-show="data.browser_ok" class="text-green-400">✓ 渲染正常</span>
+                                        <span x-show="!data.browser_ok" class="text-red-400">✗ 渲染异常</span>
+                                        <span class="text-gray-500" x-show="data.http_status" x-text="'HTTP ' + data.http_status"></span>
+                                        <span class="text-gray-500" x-show="data.navigation_time_ms" x-text="data.navigation_time_ms + 'ms'"></span>
+                                        <span x-show="data.js_error_count > 0" class="text-red-400" x-text="data.js_error_count + ' JS错误'"></span>
+                                        <span x-show="data.console_error_count > 0" class="text-yellow-400" x-text="data.console_error_count + ' 控制台错误'"></span>
+                                        <span class="text-gray-500" x-text="'SW: ' + (data.sw_status || '-')"></span>
+                                    </div>
+                                    <p x-show="data.error" class="text-xs text-red-400/80 mt-1 truncate" x-text="data.error"></p>
+                                </div>
+                                <span class="text-xs text-gray-500 ml-3" x-show="data.timestamp" x-text="formatTime(data.timestamp)"></span>
+                            </div>
+                        </template>
+                    </div>
+
+                    <div x-show="Object.keys(browserStatus.projects || {}).length === 0" class="text-center py-8 text-gray-500 text-sm">
+                        暂无浏览器检查数据，等待巡检周期自动执行
                     </div>
                 </div>
             </div>
@@ -1259,16 +1310,50 @@
                             </div>
                         </div>
 
+                        <!-- 浏览器巡检结果 -->
+                        <div x-show="detailProject.browser_check" class="bg-gray-800/50 rounded-xl p-3">
+                            <p class="text-xs text-gray-500 mb-2">🌐 浏览器深度检查</p>
+                            <div class="flex flex-wrap gap-2">
+                                <span class="px-2 py-1 rounded text-xs"
+                                      :class="detailProject.browser_check.browser_ok ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'">
+                                    <span x-text="detailProject.browser_check.browser_ok ? '✓ 渲染正常' : '✗ 渲染异常'"></span>
+                                </span>
+                                <span x-show="detailProject.browser_check.page_rendered" class="px-2 py-1 rounded text-xs bg-green-500/20 text-green-400">✓ 页面渲染</span>
+                                <span x-show="!detailProject.browser_check.page_rendered" class="px-2 py-1 rounded text-xs bg-red-500/20 text-red-400">✗ 页面空白</span>
+                                <span class="px-2 py-1 rounded text-xs bg-indigo-500/20 text-indigo-400"
+                                      x-show="detailProject.browser_check.visible_text_length"
+                                      x-text="detailProject.browser_check.visible_text_length + ' 字符'"></span>
+                                <span class="px-2 py-1 rounded text-xs bg-indigo-500/20 text-indigo-400"
+                                      x-show="detailProject.browser_check.visible_elements_count"
+                                      x-text="detailProject.browser_check.visible_elements_count + ' 个元素'"></span>
+                                <span class="px-2 py-1 rounded text-xs"
+                                      :class="detailProject.browser_check.js_error_count === 0 ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'"
+                                      x-text="'JS错误: ' + (detailProject.browser_check.js_error_count || 0)"></span>
+                                <span class="px-2 py-1 rounded text-xs"
+                                      :class="detailProject.browser_check.console_error_count === 0 ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'"
+                                      x-text="'控制台错误: ' + (detailProject.browser_check.console_error_count || 0)"></span>
+                                <span class="px-2 py-1 rounded text-xs bg-blue-500/20 text-blue-400"
+                                      x-text="'SW: ' + (detailProject.browser_check.sw_status || 'unknown')"></span>
+                            </div>
+                            <p x-show="detailProject.browser_check.error" class="text-xs text-red-400 mt-2" x-text="detailProject.browser_check.error"></p>
+                        </div>
+
                         <div x-show="detailProject.latest.error" class="bg-red-500/10 border border-red-500/20 rounded-xl p-3">
                             <p class="text-xs text-red-400">
                                 ⚠ <span x-text="detailProject.latest.error"></span>
                             </p>
                         </div>
 
-                        <button @click="triggerCheck(detailProject.project.name)"
-                                class="w-full py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-medium transition">
-                            立即检查
-                        </button>
+                        <div class="flex gap-2">
+                            <button @click="triggerCheck(detailProject.project.name)"
+                                    class="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-medium transition">
+                                立即检查
+                            </button>
+                            <button @click="triggerBrowserCheck(detailProject.project.name)"
+                                    class="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white font-medium transition">
+                                🌐 浏览器检查
+                            </button>
+                        </div>
                     </div>
 
                     <div x-show="!detailProject?.latest" class="text-center py-8 text-gray-500">
@@ -1279,7 +1364,7 @@
         </div>
 
         <footer class="text-center py-6 text-gray-600 text-xs">
-            <p>AI Health Checker v2.1 · 同步+异步 Agent 分布式监控 · WebSocket 实时推送</p>
+            <p>AI Health Checker v2.3 · 同步+异步+浏览器巡检 · WebSocket 实时推送</p>
         </footer>
     </div>
 
@@ -1305,6 +1390,10 @@
                 healthInfo: {},
                 liveLogs: [],
                 checkerWorkload: {},
+                // 浏览器巡检
+                browserStatus: { browser_checker_available: false, projects: {} },
+                browserChecking: false,
+
                 // IndexNow SEO 推送
                 indexnowInfo: null,
                 indexnowHistory: [],
@@ -1848,6 +1937,41 @@
                     }
                 },
 
+                async loadBrowserStatus() {
+                    try {
+                        const res = await fetch('/api/browser-status');
+                        if (res.ok) {
+                            this.browserStatus = await res.json();
+                        }
+                    } catch(e) {
+                        console.error('加载浏览器巡检状态失败:', e);
+                    }
+                },
+
+                async triggerBrowserCheck(projectName) {
+                    if (this.browserChecking) return;
+                    this.browserChecking = true;
+                    this.showToast('正在启动浏览器检查...', 'info');
+                    try {
+                        const res = await fetch('/api/browser-check/' + encodeURIComponent(projectName), { method: 'POST' });
+                        if (res.ok) {
+                            const data = await res.json();
+                            // 更新详情中的浏览器检查结果
+                            if (this.detailProject && this.detailProject.project?.name === projectName) {
+                                this.detailProject.browser_check = data;
+                            }
+                            this.showToast('浏览器检查完成', 'success');
+                            this.loadBrowserStatus();
+                        } else {
+                            const err = await res.json();
+                            this.showToast('浏览器检查失败: ' + (err.detail || '未知错误'), 'error');
+                        }
+                    } catch(e) {
+                        this.showToast('浏览器检查异常: ' + e.message, 'error');
+                    }
+                    this.browserChecking = false;
+                },
+
                 startAutoRefresh() {
                     if (this.autoRefreshTimer) clearInterval(this.autoRefreshTimer);
                     this.autoRefreshTimer = setInterval(() => {
@@ -1863,3 +1987,4 @@
     </script>
 </body>
 </html>
+
