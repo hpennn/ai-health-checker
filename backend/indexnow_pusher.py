@@ -79,7 +79,7 @@ class IndexNowPusher:
         urls = []
         for project in self.projects:
             base_url = project.get("url", "")
-            if not base_url:
+            if not base_url or project.get("skip_indexnow"):
                 continue
             # 项目首页
             urls.append(base_url.rstrip("/") + "/")
