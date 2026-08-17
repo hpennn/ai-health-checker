@@ -56,8 +56,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # 仅复制必要的运行时依赖
 COPY --from=builder /install /usr/local
 
-# 安装 Playwright Chromium 浏览器
-RUN playwright install chromium
+# 安装 Playwright Chromium 浏览器（使用共享路径，root 和 appuser 都可访问）
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+RUN playwright install chromium \
+    && find /opt/ms-playwright -name "*.zip" -delete 2>/dev/null || true
 
 # 创建非root用户（安全最佳实践）
 RUN groupadd -r appuser && useradd -r -g appuser appuser \
