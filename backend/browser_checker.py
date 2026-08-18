@@ -76,7 +76,10 @@ class BrowserChecker:
                         "--disable-sync",
                         "--no-first-run",
                         "--disable-translate",
-                        "--single-process",  # 节省内存
+                        "--single-process",
+                        "--disable-software-rasterizer",
+                        "--disable-features=site-per-process",
+                        "--js-flags=--max-old-space-size=256",
                     ],
                 )
                 self._initialized = True
@@ -109,37 +112,67 @@ class BrowserChecker:
         return self._initialized and self._browser is not None
 
     async def _ensure_browser(self) -> bool:
-        """确保浏览器实例存活，崩溃则自动重连"""
+        """确保浏览器实例存活，崩溃则彻底重建"""
         if self.available:
-            # 快速检测浏览器是否还活着
             try:
-                _ = self._browser.is_connected()
                 if self._browser.is_connected():
                     return True
             except Exception:
                 pass
 
-        # 浏览器已死，尝试重连
+        # 浏览器已死，彻底重建
         async with self._reconnect_lock:
-            # 双重检查
-            if self.available:
+            logger.warning("[BrowserChecker] 浏览器不可用，正在彻底重建...")
+            # 彻底清理旧的 browser 和 playwright 实例
+            if self._browser:
                 try:
-                    if self._browser.is_connected():
-                        return True
+                    await self._browser.close()
                 except Exception:
                     pass
-
-            logger.warning("[BrowserChecker] 浏览器已崩溃，正在重连...")
-            await self.shutdown()
-            # 等1秒让内存释放
-            await asyncio.sleep(1)
-            await self.initialize()
-            if self.available:
-                logger.info("[BrowserChecker] 浏览器重连成功")
+            if self._playwright:
+                try:
+                    await self._playwright.stop()
+                except Exception:
+                    pass
+            self._browser = None
+            self._playwright = None
+            self._initialized = False
+            # 等 2 秒让 OS 回收内存和进程
+            await asyncio.sleep(2)
+            # 全新创建 playwright 实例
+            try:
+                from playwright.async_api import async_playwright
+                self._playwright = await async_playwright().start()
+                self._browser = await self._playwright.chromium.launch(
+                    headless=True,
+                    args=[
+                        "--no-sandbox",
+                        "--disable-setuid-sandbox",
+                        "--disable-dev-shm-usage",
+                        "--disable-gpu",
+                        "--disable-extensions",
+                        "--disable-background-networking",
+                        "--disable-default-apps",
+                        "--disable-sync",
+                        "--no-first-run",
+                        "--disable-translate",
+                        "--single-process",
+                        "--disable-software-rasterizer",
+                        "--disable-features=site-per-process",
+                        "--js-flags=--max-old-space-size=256",
+                    ],
+                )
+                self._initialized = True
+                self._consecutive_failures = 0
+                logger.info("[BrowserChecker] 浏览器重建成功")
                 return True
-            else:
-                logger.error("[BrowserChecker] 浏览器重连失败")
+            except Exception as e:
+                logger.error(f"[BrowserChecker] 浏览器重建失败: {e}")
+                self._browser = None
+                self._playwright = None
+                self._initialized = False
                 return False
+
 
     async def check_project(self, project: dict, take_screenshot: bool = True) -> dict:
         """对单个项目执行浏览器巡检
@@ -273,10 +306,15 @@ class BrowserChecker:
                 result["error"] = f"浏览器检查异常: {error_msg}"
                 logger.warning(f"[BrowserChecker] {name} 检查异常: {e}")
 
-                # 检测浏览器是否崩溃（"has been closed" 错误）
-                if "has been closed" in error_msg or "Target page" in error_msg:
-                    logger.warning("[BrowserChecker] 检测到浏览器崩溃，标记需要重连")
+                # 检测浏览器是否崩溃
+                if "has been closed" in error_msg or "Target page" in error_msg or "NoneType" in error_msg:
+                    logger.warning("[BrowserChecker] 检测到浏览器崩溃，标记需要重建")
                     self._initialized = False
+                    try:
+                        if self._browser:
+                            await self._browser.close()
+                    except Exception:
+                        pass
                     self._browser = None
 
                 # 尝试截图（如果页面还活着）
