@@ -36,7 +36,7 @@ class BrowserChecker:
     复用浏览器实例，节省内存。支持并发控制（最多同时 N 个页面）。
     """
 
-    def __init__(self, screenshot_dir: str = None, max_concurrent_pages: int = 2):
+    def __init__(self, screenshot_dir: str = None, max_concurrent_pages: int = 1):
         self._browser = None
         self._playwright = None
         self._lock = asyncio.Lock()
@@ -46,6 +46,8 @@ class BrowserChecker:
         self._screenshot_dir = screenshot_dir or os.path.join(
             os.path.dirname(os.path.abspath(__file__)), "data", "screenshots"
         )
+        self._reconnect_lock = asyncio.Lock()
+        self._consecutive_failures = 0
         os.makedirs(self._screenshot_dir, exist_ok=True)
 
     async def initialize(self):
@@ -106,6 +108,39 @@ class BrowserChecker:
         """浏览器是否可用"""
         return self._initialized and self._browser is not None
 
+    async def _ensure_browser(self) -> bool:
+        """确保浏览器实例存活，崩溃则自动重连"""
+        if self.available:
+            # 快速检测浏览器是否还活着
+            try:
+                _ = self._browser.is_connected()
+                if self._browser.is_connected():
+                    return True
+            except Exception:
+                pass
+
+        # 浏览器已死，尝试重连
+        async with self._reconnect_lock:
+            # 双重检查
+            if self.available:
+                try:
+                    if self._browser.is_connected():
+                        return True
+                except Exception:
+                    pass
+
+            logger.warning("[BrowserChecker] 浏览器已崩溃，正在重连...")
+            await self.shutdown()
+            # 等1秒让内存释放
+            await asyncio.sleep(1)
+            await self.initialize()
+            if self.available:
+                logger.info("[BrowserChecker] 浏览器重连成功")
+                return True
+            else:
+                logger.error("[BrowserChecker] 浏览器重连失败")
+                return False
+
     async def check_project(self, project: dict, take_screenshot: bool = True) -> dict:
         """对单个项目执行浏览器巡检
         
@@ -116,8 +151,12 @@ class BrowserChecker:
         Returns:
             浏览器检查结果 dict
         """
-        if not self.available:
-            return self._empty_result(error="浏览器未初始化或不可用")
+        # 确保浏览器存活（自动重连）
+        if not await self._ensure_browser():
+            self._consecutive_failures += 1
+            if self._consecutive_failures >= 3:
+                logger.error(f"[BrowserChecker] 浏览器连续失败 {self._consecutive_failures} 次，暂停浏览器检查")
+            return self._empty_result(error="浏览器不可用，重连失败")
 
         url = project["url"]
         name = project["name"]
@@ -133,7 +172,7 @@ class BrowserChecker:
             try:
                 # 创建隔离的浏览器上下文（每个检查独立，避免 Cookie/缓存干扰）
                 context = await self._browser.new_context(
-                    viewport={"width": 1280, "height": 720},
+                    viewport={"width": 1024, "height": 600},  # 缩小视口节省内存
                     user_agent=(
                         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                         "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -141,7 +180,6 @@ class BrowserChecker:
                     ),
                     locale="zh-CN",
                     timezone_id="Asia/Shanghai",
-                    # 阻止不必要的资源加载以节省内存
                     bypass_csp=True,
                 )
 
@@ -234,6 +272,12 @@ class BrowserChecker:
                 result["browser_ok"] = False
                 result["error"] = f"浏览器检查异常: {error_msg}"
                 logger.warning(f"[BrowserChecker] {name} 检查异常: {e}")
+
+                # 检测浏览器是否崩溃（"has been closed" 错误）
+                if "has been closed" in error_msg or "Target page" in error_msg:
+                    logger.warning("[BrowserChecker] 检测到浏览器崩溃，标记需要重连")
+                    self._initialized = False
+                    self._browser = None
 
                 # 尝试截图（如果页面还活着）
                 if page and take_screenshot:
