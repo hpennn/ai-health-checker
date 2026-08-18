@@ -365,7 +365,7 @@
                             class="px-3 py-1.5 rounded-lg text-sm transition">
                         🚀 SEO推送
                     </button>
-                    <button @click="configTab = 'browser'; loadBrowserStatus()"
+                    <button style="display:none" @click="configTab = 'browser'; loadBrowserStatus()"
                             :class="configTab === 'browser' ? 'tab-btn active' : 'text-gray-400 hover:text-gray-200'"
                             class="px-3 py-1.5 rounded-lg text-sm transition">
                         🌐 浏览器巡检
@@ -740,7 +740,7 @@
                 </div>
 
                 <!-- 浏览器巡检面板 -->
-                <div x-show="configTab === 'browser'" class="space-y-4" x-transition.opacity.duration.200ms>
+                <div x-show="false /* browser tab removed */" class="space-y-4" x-transition.opacity.duration.200ms>
                     <div class="flex items-center justify-between">
                         <div>
                             <h3 class="text-sm font-medium text-gray-200">🌐 浏览器深度巡检</h3>
@@ -1311,7 +1311,7 @@
                         </div>
 
                         <!-- 浏览器巡检结果 -->
-                        <div x-show="detailProject.browser_check" class="bg-gray-800/50 rounded-xl p-3">
+                        <div x-show="false /* browser_check removed */" class="bg-gray-800/50 rounded-xl p-3">
                             <p class="text-xs text-gray-500 mb-2">🌐 浏览器深度检查</p>
                             <div class="flex flex-wrap gap-2">
                                 <span class="px-2 py-1 rounded text-xs"
@@ -1349,7 +1349,7 @@
                                     class="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-medium transition">
                                 立即检查
                             </button>
-                            <button @click="triggerBrowserCheck(detailProject.project.name)"
+                            <button style="display:none" @click="triggerBrowserCheck(detailProject.project.name)"
                                     class="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white font-medium transition">
                                 🌐 浏览器检查
                             </button>
@@ -1937,40 +1937,9 @@
                     }
                 },
 
-                async loadBrowserStatus() {
-                    try {
-                        const res = await fetch('/api/browser-status');
-                        if (res.ok) {
-                            this.browserStatus = await res.json();
-                        }
-                    } catch(e) {
-                        console.error('加载浏览器巡检状态失败:', e);
-                    }
-                },
+                loadBrowserStatus() { /* removed - no Playwright */ },
 
-                async triggerBrowserCheck(projectName) {
-                    if (this.browserChecking) return;
-                    this.browserChecking = true;
-                    this.showToast('正在启动浏览器检查...', 'info');
-                    try {
-                        const res = await fetch('/api/browser-check/' + encodeURIComponent(projectName), { method: 'POST' });
-                        if (res.ok) {
-                            const data = await res.json();
-                            // 更新详情中的浏览器检查结果
-                            if (this.detailProject && this.detailProject.project?.name === projectName) {
-                                this.detailProject.browser_check = data;
-                            }
-                            this.showToast('浏览器检查完成', 'success');
-                            this.loadBrowserStatus();
-                        } else {
-                            const err = await res.json();
-                            this.showToast('浏览器检查失败: ' + (err.detail || '未知错误'), 'error');
-                        }
-                    } catch(e) {
-                        this.showToast('浏览器检查异常: ' + e.message, 'error');
-                    }
-                    this.browserChecking = false;
-                },
+                triggerBrowserCheck(projectName) { /* removed - no Playwright */ },
 
                 startAutoRefresh() {
                     if (this.autoRefreshTimer) clearInterval(this.autoRefreshTimer);

@@ -12,7 +12,7 @@ from typing import Any
 
 import httpx
 
-from browser_checker import get_browser_checker
+from deep_inspector import DeepInspector
 from config import (
     CHECKER_IDENTITIES,
     PROJECTS,
@@ -68,8 +68,6 @@ class Checker:
         self.running = False
         self.task = None
         self.check_count = 0
-        self.browser_check_count = 0  # 浏览器深度检查次数
-        self._browser_round_counter = 0  # 用于计算浏览器检查间隔
         self.current_task = "空闲"
         self.last_check_time = None
         self._stop_event = asyncio.Event()
@@ -254,28 +252,21 @@ class Checker:
 
         result["api_check"] = await self._check_api_endpoint(url, headers)
 
-        # ===== 浏览器深度检查（第二层） =====
-        # 每 BROWSER_CHECK_INTERVAL 轮 HTTP 检查后执行 1 次浏览器检查
-        # 或者对 PWA/需要登录墙的项目每次都做浏览器检查
-        self._browser_round_counter += 1
-        should_browser_check = (
-            self._browser_round_counter >= CheckerManager.BROWSER_CHECK_INTERVAL
-            or project.get("category") == "pwa"
-            or project.get("requires_login", False)
-        )
-
-        if should_browser_check and result["status"] == "online":
-            self._browser_round_counter = 0
-            browser_result = await self._run_browser_check(project)
-            result["browser_check"] = browser_result
-            # 如果浏览器检查发现严重问题，降级状态
-            if browser_result and not browser_result.get("browser_ok", True):
-                if result["status"] == "online":
-                    result["status"] = "slow"  # 降级为 slow 而非 offline
-                    result["error"] = (result.get("error") or "") + \
-                        f" [浏览器] {browser_result.get('error', '渲染异常')}"
+        # ===== 深度 HTTP 检查（从首页入口检查资源） =====
+        if result["status"] in ("online", "slow"):
+            try:
+                deep = await DeepInspector.inspect(url, headers)
+                result["deep_check"] = deep
+                # 如果深度检查发现 SPA 空壳，标记
+                if deep.get("is_spa_shell"):
+                    result["error"] = (result.get("error") or "") + " [深度检查] 疑似 SPA 空壳页面"
+                    if result["status"] == "online":
+                        result["status"] = "slow"
+            except Exception as e:
+                logger.warning(f"[Checker-{self.id}] {project['name']} 深度检查异常: {e}")
+                result["deep_check"] = None
         else:
-            result["browser_check"] = None
+            result["deep_check"] = None
 
         self.check_count += 1
         self.last_check_time = datetime.now(timezone.utc).isoformat()
@@ -289,54 +280,6 @@ class Checker:
                         f"(响应时间: {result['response_time_ms']}ms)")
 
         return result
-
-    async def _run_browser_check(self, project: dict) -> dict | None:
-        """执行浏览器深度检查"""
-        try:
-            bc = get_browser_checker()
-            if not bc.available:
-                return None
-            self.current_task = f"浏览器检测: {project['name']}"
-            browser_result = await bc.check_project(project, take_screenshot=True)
-            self.browser_check_count += 1
-            logger.info(
-                f"[Checker-{self.id}] {project['name']} 浏览器检查完成: "
-                f"rendered={browser_result.get('page_rendered')}, "
-                f"js_errors={browser_result.get('js_error_count', 0)}"
-            )
-            return browser_result
-        except Exception as e:
-            logger.warning(f"[Checker-{self.id}] {project['name']} 浏览器检查异常: {e}")
-            return None
-
-    async def browser_check_only(self, project: dict) -> dict:
-        """仅执行浏览器检查（不走 HTTP 检查），用于手动触发"""
-        self.current_task = f"浏览器检测: {project['name']}"
-        try:
-            bc = get_browser_checker()
-            if not bc.available:
-                await bc.initialize()
-            if not bc.available:
-                return {
-                    "project_name": project["name"],
-                    "project_url": project["url"],
-                    "browser_ok": False,
-                    "error": "Playwright 未安装或浏览器启动失败",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }
-            result = await bc.check_project(project, take_screenshot=True)
-            self.browser_check_count += 1
-            return result
-        except Exception as e:
-            return {
-                "project_name": project["name"],
-                "project_url": project["url"],
-                "browser_ok": False,
-                "error": str(e)[:200],
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }
-        finally:
-            self.current_task = "空闲"
 
     async def run_loop(self):
         """Checker 主循环 - 支持暂停/恢复和动态间隔"""
@@ -442,7 +385,6 @@ class Checker:
             "running": self.running,
             "paused": self.paused,
             "check_count": self.check_count,
-            "browser_check_count": self.browser_check_count,
             "current_task": self.current_task,
             "last_check_time": self.last_check_time,
             "project_count": len(self.projects),
@@ -462,12 +404,6 @@ class CheckerManager:
     _ws_clients: list = []  # WebSocket 客户端列表
     _start_time = None  # 服务启动时间
 
-    # ===== 浏览器检查配置 =====
-    BROWSER_CHECK_INTERVAL = 3  # 每 N 轮 HTTP 检查后执行 1 次浏览器检查
-
-    # ===== 浏览器检查历史 =====
-    _browser_results: dict[str, list[dict]] = {}  # project_name -> [browser check history]
-    _browser_latest: dict[str, dict] = {}  # project_name -> latest browser check result
 
     # ===== 总巡检次数追踪 =====
     _inspection_count = 0  # 今日已完成的完整巡检轮数
@@ -494,16 +430,6 @@ class CheckerManager:
             checker = Checker(identity, assignments[identity["id"]])
             cls._checkers[checker.id] = checker
 
-        # 初始化浏览器检查器
-        try:
-            from browser_checker import init_browser_checker
-            bc = await init_browser_checker()
-            if bc.available:
-                logger.info("[CheckerManager] 浏览器深度检查已就绪")
-            else:
-                logger.warning("[CheckerManager] 浏览器深度检查不可用（Playwright 未安装）")
-        except Exception as e:
-            logger.warning(f"[CheckerManager] 浏览器检查器初始化失败: {e}")
 
         cls._initialized = True
         logger.info("[CheckerManager] 初始化完成，共 %d 个同步Checker", len(cls._checkers))
@@ -572,16 +498,6 @@ class CheckerManager:
             if len(cls._results[project_name]) > HISTORY_MAX_SIZE:
                 cls._results[project_name] = cls._results[project_name][-HISTORY_MAX_SIZE:]
 
-            # 保存浏览器检查结果（如果有）
-            browser_check = result.get("browser_check")
-            if browser_check:
-                cls._browser_latest[project_name] = browser_check
-                if project_name not in cls._browser_results:
-                    cls._browser_results[project_name] = []
-                cls._browser_results[project_name].append(browser_check)
-                if len(cls._browser_results[project_name]) > HISTORY_MAX_SIZE:
-                    cls._browser_results[project_name] = cls._browser_results[project_name][-HISTORY_MAX_SIZE:]
-
         asyncio.create_task(cls._save_results_to_file())
         # WebSocket 推送
         await cls._ws_broadcast({
@@ -591,9 +507,6 @@ class CheckerManager:
         # 添加实时日志
         log_msg = f"#{result.get('checker_id', '?')} 检测 {project_name}: {result['status']} " \
                   f"({result.get('response_time_ms', 0)}ms)"
-        if browser_check:
-            bc_status = "✓" if browser_check.get("browser_ok") else "✗"
-            log_msg += f" [浏览器{bc_status}]"
         cls._add_log(
             "info" if result["status"] == "online" else "warning",
             log_msg
@@ -641,12 +554,6 @@ class CheckerManager:
                 checker.stop()
                 if checker.task:
                     checker.task.cancel()
-        # 关闭浏览器检查器
-        try:
-            from browser_checker import shutdown_browser_checker
-            await shutdown_browser_checker()
-        except Exception:
-            pass
 
     @classmethod
     def pause_all(cls):
@@ -819,54 +726,6 @@ class CheckerManager:
             }
         return workload
 
-    # ===== 浏览器检查相关 =====
-    @classmethod
-    async def browser_check_project(cls, project_name: str) -> dict | None:
-        """手动触发单个项目的浏览器深度检查"""
-        await cls.initialize()
-        from config import get_project_by_name
-        project = get_project_by_name(project_name)
-        if not project:
-            return None
-        # 找一个空闲的 checker 来执行
-        for checker in cls._checkers.values():
-            result = await checker.browser_check_only(project)
-            # 保存浏览器检查结果
-            async with cls._lock:
-                cls._browser_latest[project_name] = result
-                if project_name not in cls._browser_results:
-                    cls._browser_results[project_name] = []
-                cls._browser_results[project_name].append(result)
-                if len(cls._browser_results[project_name]) > HISTORY_MAX_SIZE:
-                    cls._browser_results[project_name] = cls._browser_results[project_name][-HISTORY_MAX_SIZE:]
-            await cls._ws_broadcast({
-                "type": "browser_check_update",
-                "project_name": project_name,
-                "result": result,
-            })
-            cls._add_log(
-                "info" if result.get("browser_ok") else "warning",
-                f"[浏览器] {project_name}: {'正常' if result.get('browser_ok') else '异常'} "
-                f"(JS错误: {result.get('js_error_count', 0)})"
-            )
-            return result
-        return None
-
-    @classmethod
-    def get_browser_latest(cls, project_name: str) -> dict | None:
-        """获取指定项目最新的浏览器检查结果"""
-        return cls._browser_latest.get(project_name)
-
-    @classmethod
-    def get_browser_all_latest(cls) -> dict[str, dict]:
-        """获取所有项目最新的浏览器检查结果"""
-        return cls._browser_latest.copy()
-
-    @classmethod
-    def get_browser_history(cls, project_name: str) -> list[dict]:
-        """获取指定项目的浏览器检查历史"""
-        return cls._browser_results.get(project_name, [])[-20:]
-
     # ===== 健康检查相关 =====
     @classmethod
     def get_health_info(cls) -> dict:
@@ -905,12 +764,7 @@ class CheckerManager:
                 "sync_running": sum(1 for c in cls._checkers.values() if c.running and not c.paused),
                 "async_total": 0,  # 由main.py补充
                 "async_running": 0,
-            },
-            "browser_checker": {
-                "available": get_browser_checker().available,
-                "total_checks": sum(1 for r in cls._browser_results.values() for _ in r),
-            },
-            "inspections_today": cls._inspection_count,
+            },"inspections_today": cls._inspection_count,
             "start_time": cls._start_time.isoformat() if cls._start_time else None,
         }
 

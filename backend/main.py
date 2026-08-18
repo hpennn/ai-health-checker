@@ -198,12 +198,6 @@ async def lifespan(app: FastAPI):
         _time_range_task.cancel()
     await CheckerManager.stop_all()
     await AsyncCheckerManager.stop_all()
-    # 关闭浏览器检查器
-    try:
-        from browser_checker import shutdown_browser_checker
-        await shutdown_browser_checker()
-    except Exception:
-        pass
     if _indexnow_pusher:
         await _indexnow_pusher.stop()
         logger.info("[IndexNow] 推送器已停止")
@@ -341,53 +335,6 @@ async def check_all_now():
         "count": len(results),
         "results": results,
     }
-
-
-# ========== 浏览器深度检查 API ==========
-@app.post("/api/browser-check/{project_name}")
-async def browser_check_project(project_name: str):
-    """手动触发单个项目的浏览器深度检查"""
-    project = get_project_by_name(project_name)
-    if not project:
-        raise HTTPException(status_code=404, detail="项目不存在")
-
-    result = await CheckerManager.browser_check_project(project_name)
-    if result is None:
-        raise HTTPException(status_code=500, detail="浏览器检查失败（可能 Playwright 未安装）")
-
-    return {
-        "message": f"已完成 {project_name} 的浏览器深度检查",
-        "result": result,
-    }
-
-
-@app.get("/api/browser-status/{project_name}")
-async def get_browser_status(project_name: str):
-    """获取指定项目的浏览器检查状态"""
-    project = get_project_by_name(project_name)
-    if not project:
-        raise HTTPException(status_code=404, detail="项目不存在")
-
-    return {
-        "project_name": project_name,
-        "latest": CheckerManager.get_browser_latest(project_name),
-        "history": CheckerManager.get_browser_history(project_name),
-    }
-
-
-@app.get("/api/browser-status")
-async def get_all_browser_status():
-    """获取所有项目的浏览器检查状态"""
-    return {
-        "browser_checker_available": get_browser_checker().available,
-        "projects": CheckerManager.get_browser_all_latest(),
-    }
-
-
-def get_browser_checker():
-    """获取浏览器检查器状态（延迟导入）"""
-    from browser_checker import get_browser_checker as _get_bc
-    return _get_bc()
 
 
 @app.get("/api/history")

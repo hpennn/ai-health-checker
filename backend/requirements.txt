@@ -7,4 +7,3 @@ pydantic==2.7.4
 python-multipart==0.0.9
 websockets==12.0
 psutil==5.9.8
-playwright==1.49.1
