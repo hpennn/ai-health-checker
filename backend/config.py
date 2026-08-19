@@ -290,8 +290,8 @@ class RuntimeConfig:
         self.search_engine = "baidu"  # baidu / bing / google
         self.project_search_keywords = _default_search_keywords()
         # 模拟访问（Visitor）配置
-        self.visitor_interval_min = 10
-        self.visitor_interval_max = 30
+        self.visitor_interval_min = 20
+        self.visitor_interval_max = 45
         self.default_visit_count = 5
         # 每个项目的 visit_count（可动态修改）
         self.project_visit_counts = {p["name"]: p.get("visit_count", 5) for p in PROJECTS}

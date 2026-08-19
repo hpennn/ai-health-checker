@@ -106,6 +106,26 @@ class Checker:
             "X-Originating-IP": ip,
         }
 
+    def _build_visitor_headers(self, referer_url: str = None) -> dict:
+        """构建模拟真实浏览器访问的请求头（不含反代头，Visitor 专用）"""
+        ip = get_random_ip(self.ip_pool)
+        headers = {
+            "User-Agent": self.user_agent,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "same-origin" if referer_url else "none",
+            "Sec-Fetch-User": "?1",
+            "Cache-Control": "max-age=0",
+        }
+        if referer_url:
+            headers["Referer"] = referer_url
+        return headers
+
     async def _check_ssl(self, url: str) -> dict:
         """检查 SSL 证书状态（仅 HTTPS）"""
         if not url.startswith("https://"):
@@ -286,7 +306,7 @@ class Checker:
 
 
     async def visit_project(self, project: dict) -> dict:
-        """模拟访问项目 - 首页 + 内页爬取（Visitor 专用）"""
+        """模拟访问项目 - 首页 + 串行内页访问（Visitor 专用，模拟真人浏览）"""
         self.current_task = f"访问: {project['name']}"
         url = project["url"]
         result = {
@@ -305,18 +325,19 @@ class Checker:
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
-        headers = self._build_headers()
+        # ---- 首页访问：使用 visitor 专用 headers（不带反代头，无 Referer） ----
+        homepage_headers = self._build_visitor_headers()
 
         try:
+            # 首页用独立 client
             async with httpx.AsyncClient(
-                headers=headers,
+                headers=homepage_headers,
                 timeout=REQUEST_TIMEOUT,
                 follow_redirects=True,
                 verify=True,
-            ) as client:
-                # 1. 访问首页
+            ) as home_client:
                 start_time = time.time()
-                resp = await client.get(url)
+                resp = await home_client.get(url)
                 elapsed_ms = round((time.time() - start_time) * 1000, 2)
                 result["homepage_status"] = resp.status_code
                 result["homepage_time_ms"] = elapsed_ms
@@ -333,24 +354,38 @@ class Checker:
 
                 html = resp.text
 
-                # 2. 提取内链
-                from deep_inspector import DeepInspector
-                internal_links = DeepInspector._extract_internal_links(html, url)
+            # 2. 提取内链
+            from deep_inspector import DeepInspector
+            internal_links = DeepInspector._extract_internal_links(html, url)
 
-                if not internal_links:
-                    result["all_ok"] = True  # 没有内链也算正常
-                    self.current_task = "空闲"
-                    return result
+            if not internal_links:
+                result["all_ok"] = True  # 没有内链也算正常
+                self.current_task = "空闲"
+                return result
 
-                # 3. 随机选 3-5 个内页
-                num_pages = min(random.randint(3, 5), len(internal_links))
-                sampled_links = random.sample(internal_links, num_pages)
+            # 3. 随机选 3-5 个内页
+            num_pages = min(random.randint(3, 5), len(internal_links))
+            sampled_links = random.sample(internal_links, num_pages)
 
-                # 4. 并发访问内页
-                async def _visit_page(page_url: str) -> dict:
-                    page_start = time.time()
-                    try:
-                        page_resp = await client.get(page_url, timeout=8)
+            # 4. 串行访问内页（模拟真人逐个点击，带阅读间隔）
+            #    每个内页用独立 client，设置不同 headers（带首页 Referer）
+            for i, page_url in enumerate(sampled_links):
+                # 模拟阅读间隔（第一个内页前不加延迟）
+                if i > 0:
+                    await asyncio.sleep(random.uniform(1.5, 4.0))
+
+                # 内页用独立 headers，带首页 Referer
+                page_headers = self._build_visitor_headers(referer_url=url)
+
+                page_start = time.time()
+                try:
+                    async with httpx.AsyncClient(
+                        headers=page_headers,
+                        timeout=REQUEST_TIMEOUT,
+                        follow_redirects=True,
+                        verify=True,
+                    ) as page_client:
+                        page_resp = await page_client.get(page_url)
                         page_elapsed = round((time.time() - page_start) * 1000, 2)
                         page_html = page_resp.text
 
@@ -371,40 +406,38 @@ class Checker:
                                 "status": page_resp.status_code,
                                 "error": page_resp.reason_phrase or "Error",
                             })
-                        return page_result
-                    except httpx.TimeoutException:
-                        page_elapsed = round((time.time() - page_start) * 1000, 2)
-                        result["errors"].append({
-                            "url": page_url,
-                            "status": None,
-                            "error": "Timeout",
-                        })
-                        return {
-                            "url": page_url,
-                            "status": None,
-                            "time_ms": page_elapsed,
-                            "has_title": False,
-                            "ok": False,
-                        }
-                    except Exception as e:
-                        page_elapsed = round((time.time() - page_start) * 1000, 2)
-                        result["errors"].append({
-                            "url": page_url,
-                            "status": None,
-                            "error": str(e)[:100],
-                        })
-                        return {
-                            "url": page_url,
-                            "status": None,
-                            "time_ms": page_elapsed,
-                            "has_title": False,
-                            "ok": False,
-                        }
+                        result["pages"].append(page_result)
+                except httpx.TimeoutException:
+                    page_elapsed = round((time.time() - page_start) * 1000, 2)
+                    result["errors"].append({
+                        "url": page_url,
+                        "status": None,
+                        "error": "Timeout",
+                    })
+                    result["pages"].append({
+                        "url": page_url,
+                        "status": None,
+                        "time_ms": page_elapsed,
+                        "has_title": False,
+                        "ok": False,
+                    })
+                except Exception as e:
+                    page_elapsed = round((time.time() - page_start) * 1000, 2)
+                    result["errors"].append({
+                        "url": page_url,
+                        "status": None,
+                        "error": str(e)[:100],
+                    })
+                    result["pages"].append({
+                        "url": page_url,
+                        "status": None,
+                        "time_ms": page_elapsed,
+                        "has_title": False,
+                        "ok": False,
+                    })
 
-                page_results = await asyncio.gather(*[_visit_page(link) for link in sampled_links])
-                result["pages"] = list(page_results)
-                result["visited_pages"] = len(page_results)
-                result["all_ok"] = all(p["ok"] for p in page_results)
+            result["visited_pages"] = len(sampled_links)
+            result["all_ok"] = all(p["ok"] for p in result["pages"])
 
         except httpx.TimeoutException:
             result["errors"].append({"url": url, "status": None, "error": "请求超时"})
@@ -671,8 +704,8 @@ class CheckerManager:
                     "history": cls._results,
                     "latest": cls._latest,
                     "async_latest": cls._async_latest,
-                    "visit_history": cls._visit_results,
                     "visit_latest": cls._visit_latest,
+                    "visit_history": {k: v[-20:] for k, v in cls._visit_results.items()},
                     "last_updated": datetime.now(timezone.utc).isoformat(),
                 }
                 os.makedirs(os.path.dirname(RESULTS_FILE), exist_ok=True)
