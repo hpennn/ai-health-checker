@@ -471,10 +471,28 @@ class Checker:
 
                 html = resp.text
 
-            # 2. 提取内链（使用增强版提取方法，支持 SPA navigateTo / switchTab / hash 路由等）
+            # 2. SPA 站点判断：如果项目标记为 is_spa，或 sub_paths 为空且 HTML 中只有 SPA 导航模式，
+            #    则只访问首页，不尝试子页面（客户端路由 HTTP 访问会返回 404）
+            is_spa = project.get("is_spa", False)
+            if not is_spa:
+                # 启发式判断：sub_paths 为空 且 HTML 中有 navigateTo/switchTab 但没有真实 <a href> 内链
+                sub_paths_empty = not project.get("sub_paths", [])
+                has_spa_pattern = bool(re.search(r"navigateTo\s*\(\s*['\"]", html)) or \
+                                  bool(re.search(r"switchTab\s*\(\s*['\"]", html))
+                if sub_paths_empty and has_spa_pattern:
+                    is_spa = True
+
+            if is_spa:
+                result["all_ok"] = True
+                result["visited_pages"] = 0
+                result["note"] = "SPA站点，仅访问首页"
+                self.current_task = "空闲"
+                return result
+
+            # 3. 提取内链（使用增强版提取方法，支持 SPA navigateTo / switchTab / hash 路由等）
             internal_links = self._extract_internal_links(html, url)
 
-            # 3. 如果提取不足 3 个，从 config 的 sub_paths 补充
+            # 4. 如果提取不足 3 个，从 config 的 sub_paths 补充
             if len(internal_links) < 3:
                 sub_paths = project.get("sub_paths", [])
                 if sub_paths:
@@ -495,11 +513,11 @@ class Checker:
                 self.current_task = "空闲"
                 return result
 
-            # 4. 随机选 3-5 个内页
+            # 5. 随机选 3-5 个内页
             num_pages = min(random.randint(3, 5), len(internal_links))
             sampled_links = random.sample(internal_links, num_pages)
 
-            # 4. 串行访问内页（模拟真人逐个点击，带阅读间隔）
+            # 6. 串行访问内页（模拟真人逐个点击，带阅读间隔）
             #    每个内页用独立 client，设置不同 headers（带首页 Referer）
             for i, page_url in enumerate(sampled_links):
                 # 模拟阅读间隔（第一个内页前不加延迟）
@@ -1261,3 +1279,4 @@ class CheckerManager:
             "type": "log_update",
             "log": log_entry,
         })
+
