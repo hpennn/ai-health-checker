@@ -1743,6 +1743,7 @@
                         this.withinTimeRange = statusRes.within_time_range !== false;
                         this.inspectionStats = statusRes.inspection_stats || this.inspectionStats;
                         this.checkerWorkload = statusRes.checker_workload || {};
+                        this.visitLatest = statusRes.visit_latest || {};
                         this.agents = agentsRes.agents || [];
                         this.history = historyRes.records || [];
 
@@ -1894,6 +1895,11 @@
                         // 控制指令
                         this.loadData();
                         this.loadAsyncCheckers();
+                    } else if (msg.type === 'visit_update') {
+                        // 模拟访问结果更新
+                        if (msg.project && msg.project.project_name) {
+                            this.$set(this.visitLatest, msg.project.project_name, msg.project);
+                        }
                     } else if (msg.type === 'log_init') {
                         // 初始日志
                         this.liveLogs = msg.logs || [];
