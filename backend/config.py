@@ -6,37 +6,107 @@ import asyncio
 from datetime import datetime
 
 # ========== 监控项目列表 ==========
+# sub_paths: 已知子页面路径列表，用于 Visitor 模拟访问内页的兜底补充
 PROJECTS = [
     # === zhinenti.cn 系列 ===
-    {"name": "智能工作台", "url": "https://www.zhinenti.cn", "category": "AI工具", "visit_count": 5},
-    {"name": "部署助手", "url": "https://deploy.zhinenti.cn", "category": "AI工具", "visit_count": 5},
-    {"name": "营销助手", "url": "https://craft.zhinenti.cn", "category": "AI工具", "visit_count": 5},
-    {"name": "智能部署", "url": "https://auto.zhinenti.cn", "category": "AI工具", "visit_count": 5},
+    {
+        "name": "智能工作台", "url": "https://www.zhinenti.cn", "category": "AI工具", "visit_count": 5,
+        "sub_paths": ["/", "/home", "/profile", "/agents", "/tasks"],
+    },
+    {
+        "name": "部署助手", "url": "https://deploy.zhinenti.cn", "category": "AI工具", "visit_count": 5,
+        "sub_paths": ["/", "/home", "/deploy", "/fix", "/agent", "/profile", "/server", "/orders"],
+    },
+    {
+        "name": "营销助手", "url": "https://craft.zhinenti.cn", "category": "AI工具", "visit_count": 5,
+        "sub_paths": ["/", "/home", "/marketing", "/profile", "/agents", "/tasks"],
+    },
+    {
+        "name": "智能部署", "url": "https://auto.zhinenti.cn", "category": "AI工具", "visit_count": 5,
+        "sub_paths": ["/", "/deploy", "/agent", "/profile", "/server"],
+    },
     # === zhinenti.vip / xyz ===
-    {"name": "祝福生成", "url": "https://www.zhinenti.vip", "category": "工具", "visit_count": 5},
-    {"name": "AI文案", "url": "https://www.zhinenti.xyz", "category": "AI工具", "visit_count": 5},
+    {
+        "name": "祝福生成", "url": "https://www.zhinenti.vip", "category": "工具", "visit_count": 5,
+        "sub_paths": ["/", "/#generate"],
+    },
+    {
+        "name": "AI文案", "url": "https://www.zhinenti.xyz", "category": "AI工具", "visit_count": 5,
+        "sub_paths": ["/", "/#generate"],
+    },
     # === hpenn.online ===
-    {"name": "起名工具", "url": "https://www.hpenn.online", "category": "AI工具", "visit_count": 5},
+    {
+        "name": "起名工具", "url": "https://www.hpenn.online", "category": "AI工具", "visit_count": 5,
+        "sub_paths": ["/", "/features", "/login"],
+    },
     # === hpenn.xyz 系列 ===
-    {"name": "文本工具", "url": "https://www.hpenn.xyz", "category": "工具", "visit_count": 5},
-    {"name": "OCR识别", "url": "https://ocr.hpenn.xyz", "category": "工具", "visit_count": 5},
-    {"name": "AI简历", "url": "https://resume.hpenn.xyz", "category": "工具", "visit_count": 5},
-    {"name": "文档摘要", "url": "https://doc.hpenn.xyz", "category": "工具", "visit_count": 5},
-    {"name": "文档转换", "url": "https://convert.hpenn.xyz", "category": "工具", "visit_count": 5},
-    {"name": "批量图片编辑", "url": "https://imgedit.hpenn.xyz", "category": "工具", "visit_count": 5},
-    {"name": "图片尺寸", "url": "https://imgsize.hpenn.xyz", "category": "工具", "visit_count": 5},
-    {"name": "表格工具", "url": "https://table.hpenn.xyz", "category": "工具", "visit_count": 5},
+    {
+        "name": "文本工具", "url": "https://www.hpenn.xyz", "category": "工具", "visit_count": 5,
+        "sub_paths": ["/", "/text-dedup", "/word-count", "/case-convert", "/text-diff", "/text-replace", "/text-sort"],
+    },
+    {
+        "name": "OCR识别", "url": "https://ocr.hpenn.xyz", "category": "工具", "visit_count": 5,
+        "sub_paths": ["/"],
+    },
+    {
+        "name": "AI简历", "url": "https://resume.hpenn.xyz", "category": "工具", "visit_count": 5,
+        "sub_paths": ["/", "/#optimize"],
+    },
+    {
+        "name": "文档摘要", "url": "https://doc.hpenn.xyz", "category": "工具", "visit_count": 5,
+        "sub_paths": ["/", "/#summarize"],
+    },
+    {
+        "name": "文档转换", "url": "https://convert.hpenn.xyz", "category": "工具", "visit_count": 5,
+        "sub_paths": ["/"],
+    },
+    {
+        "name": "批量图片编辑", "url": "https://imgedit.hpenn.xyz", "category": "工具", "visit_count": 5,
+        "sub_paths": ["/", "/#compress", "/#resize", "/#watermark", "/#format"],
+    },
+    {
+        "name": "图片尺寸", "url": "https://imgsize.hpenn.xyz", "category": "工具", "visit_count": 5,
+        "sub_paths": ["/"],
+    },
+    {
+        "name": "表格工具", "url": "https://table.hpenn.xyz", "category": "工具", "visit_count": 5,
+        "sub_paths": ["/", "/edit", "/csv", "/xlsx", "/login", "/register"],
+    },
     # === hpennn.xyz 系列 ===
-    {"name": "开发工具", "url": "https://www.hpennn.xyz", "category": "工具", "visit_count": 5},
-    {"name": "导航站", "url": "https://www.hpennn.online", "category": "工具", "visit_count": 5},
-    {"name": "智能搜索", "url": "https://smart.hpennn.xyz", "category": "工具", "visit_count": 5},
-    {"name": "PPT工具", "url": "https://ppt.hpennn.xyz", "category": "工具", "visit_count": 5},
-    {"name": "内容生成", "url": "https://content.hpennn.xyz", "category": "AI工具", "visit_count": 5},
+    {
+        "name": "开发工具", "url": "https://www.hpennn.xyz", "category": "工具", "visit_count": 5,
+        "sub_paths": ["/", "/json-formatter", "/base64", "/regex-tester", "/color-converter", "/timestamp", "/hash"],
+    },
+    {
+        "name": "导航站", "url": "https://www.hpennn.online", "category": "工具", "visit_count": 5,
+        "sub_paths": ["/", "/category", "/submit"],
+    },
+    {
+        "name": "智能搜索", "url": "https://smart.hpennn.xyz", "category": "工具", "visit_count": 5,
+        "sub_paths": ["/", "/generate", "/copy", "/publish", "/#workflow"],
+    },
+    {
+        "name": "PPT工具", "url": "https://ppt.hpennn.xyz", "category": "工具", "visit_count": 5,
+        "sub_paths": ["/", "/ppt", "/report"],
+    },
+    {
+        "name": "内容生成", "url": "https://content.hpennn.xyz", "category": "AI工具", "visit_count": 5,
+        "sub_paths": ["/", "/xiaohongshu", "/rewrite", "/scoring", "/video-script", "/sensitive"],
+    },
     # === kuaisu 系列 ===
-    {"name": "图片工具", "url": "https://www.kuaisutupo.xyz", "category": "工具", "visit_count": 5},
-    {"name": "快速工具", "url": "https://www.kuaisu.online", "category": "工具", "visit_count": 5},
+    {
+        "name": "图片工具", "url": "https://www.kuaisutupo.xyz", "category": "工具", "visit_count": 5,
+        "sub_paths": ["/", "/convert", "/compress", "/crop", "/watermark", "/splice", "/info"],
+    },
+    {
+        "name": "快速工具", "url": "https://www.kuaisu.online", "category": "工具", "visit_count": 5,
+        "sub_paths": ["/", "/mortgage-calculator", "/unit-converter", "/tax-calculator", "/date-calculator", "/bmi-calculator", "/exchange-rate"],
+    },
     # === IP直连（不推送IndexNow） ===
-    {"name": "AI客服管理", "url": "http://47.113.216.237:8600", "category": "AI工具", "visit_count": 5},
+    {
+        "name": "AI客服管理", "url": "http://47.113.216.237:8600", "category": "AI工具", "visit_count": 5,
+        "sub_paths": ["/", "/login"],
+    },
 ]
 
 # ========== 检查配置（基础常量） ==========
