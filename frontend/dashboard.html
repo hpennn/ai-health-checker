@@ -454,6 +454,14 @@
                     </svg>
                     <span class="main-tab-text">访问日志</span>
                 </button>
+                <button @click="activeTab = 'video'; loadVideoStatus()"
+                        :class="activeTab === 'video' ? 'main-tab-btn active' : 'text-gray-400 hover:text-gray-200'"
+                        class="main-tab-btn flex-1 px-4 py-2.5 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                    </svg>
+                    <span class="main-tab-text">视频访问</span>
+                </button>
             </div>
 
             <!-- Tab 1: 同步巡检 -->
@@ -1532,6 +1540,218 @@
                     </template>
                 </div>
             </div>
+
+            <!-- Tab 5: 视频访问 -->
+            <div x-show="activeTab === 'video'" x-transition:enter="fade-in">
+                <!-- 视频访问头部 -->
+                <div class="glass rounded-xl p-3 mb-4 border border-gray-700/30 flex items-center justify-between flex-wrap gap-2">
+                    <div class="flex items-center gap-2">
+                        <h2 class="text-sm font-semibold text-gray-200 flex items-center gap-2">
+                            <svg class="w-4 h-4 text-pink-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                            </svg>
+                            视频访问
+                        </h2>
+                        <span class="text-xs text-gray-500">
+                            <span class="text-green-400 font-medium" x-text="videoSuccessCount"></span> 成功 /
+                            <span class="text-red-400 font-medium" x-text="videoFailCount"></span> 失败
+                        </span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button @click="showAddVideoModal = true"
+                                class="px-3 py-1.5 rounded-lg bg-green-500/20 hover:bg-green-500/30 text-green-300 text-xs transition flex items-center gap-1.5">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                            </svg>
+                            添加视频
+                        </button>
+                        <button @click="loadVideoStatus()"
+                                class="px-3 py-1.5 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 text-xs transition flex items-center gap-1.5">
+                            <svg class="w-3.5 h-3.5" :class="{'animate-spin': videoLoading}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                            </svg>
+                            刷新
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 控制按钮 -->
+                <div class="glass rounded-xl p-3 mb-4 border border-gray-700/30 flex items-center gap-3 flex-wrap">
+                    <span class="text-xs text-gray-400">同步视频访问:</span>
+                    <button @click="videoSyncRunning ? stopVideoVisits('sync') : startVideoVisits('sync')"
+                            :class="videoSyncRunning ? 'bg-red-500/20 text-red-300 hover:bg-red-500/30' : 'bg-green-500/20 text-green-300 hover:bg-green-500/30'"
+                            class="px-3 py-1.5 rounded-lg text-xs transition flex items-center gap-1.5">
+                        <svg class="w-3.5 h-3.5" x-show="videoSyncRunning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                        <svg class="w-3.5 h-3.5" x-show="!videoSyncRunning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                        <span x-text="videoSyncRunning ? '停止' : '启动'"></span>
+                    </button>
+
+                    <span class="text-xs text-gray-400 ml-4">异步视频访问:</span>
+                    <button @click="videoAsyncRunning ? stopVideoVisits('async') : startVideoVisits('async')"
+                            :class="videoAsyncRunning ? 'bg-red-500/20 text-red-300 hover:bg-red-500/30' : 'bg-green-500/20 text-green-300 hover:bg-green-500/30'"
+                            class="px-3 py-1.5 rounded-lg text-xs transition flex items-center gap-1.5">
+                        <svg class="w-3.5 h-3.5" x-show="videoAsyncRunning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                        <svg class="w-3.5 h-3.5" x-show="!videoAsyncRunning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                        <span x-text="videoAsyncRunning ? '停止' : '启动'"></span>
+                    </button>
+                </div>
+
+                <!-- 视频列表 -->
+                <div class="space-y-2">
+                    <template x-for="(video, name) in videoStatus" :key="name">
+                        <div class="glass rounded-xl p-3 border border-gray-700/30">
+                            <div class="flex items-center justify-between flex-wrap gap-2">
+                                <div class="flex items-center gap-2 flex-1 min-w-0">
+                                    <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                                         :class="video.success ? 'bg-green-500/10' : 'bg-red-500/10'">
+                                        <svg class="w-4 h-4" :class="video.success ? 'text-green-400' : 'text-red-400'" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path x-show="video.success" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                                            <path x-show="!video.success" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                        </svg>
+                                    </div>
+                                    <div class="min-w-0 flex-1">
+                                        <div class="flex items-center gap-2">
+                                            <span class="text-sm font-medium text-gray-200 truncate" x-text="video.name"></span>
+                                            <span class="text-xs px-1.5 py-0.5 rounded"
+                                                  :class="video.success ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'"
+                                                  x-text="video.success ? '播放成功' : (video.error || '未播放')"></span>
+                                        </div>
+                                        <div class="text-xs text-gray-500 truncate" x-text="video.url"></div>
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-4 text-xs flex-shrink-0">
+                                    <div class="text-center">
+                                        <div class="text-gray-400">状态码</div>
+                                        <div class="font-mono" :class="video.video_status ? 'text-green-400' : 'text-gray-600'"
+                                             x-text="video.video_status || '--'"></div>
+                                    </div>
+                                    <div class="text-center">
+                                        <div class="text-gray-400">响应时间</div>
+                                        <div class="font-mono text-indigo-400"
+                                             x-text="video.video_time_ms ? Math.round(video.video_time_ms) + 'ms' : '--'"></div>
+                                    </div>
+                                    <div class="text-center">
+                                        <div class="text-gray-400">播放次数</div>
+                                        <div class="flex items-center gap-1">
+                                            <button @click="decreasePlayCount(video)"
+                                                    class="w-6 h-6 rounded bg-gray-700/50 hover:bg-gray-600/50 text-gray-300 flex items-center justify-center">
+                                                −
+                                            </button>
+                                            <input type="number" x-model="video.play_count"
+                                                   @change="updatePlayCount(video)"
+                                                   class="w-12 h-6 text-center bg-gray-800/50 border border-gray-700 rounded text-gray-200 text-xs focus:outline-none focus:border-indigo-500"
+                                                   min="1" max="100">
+                                            <button @click="increasePlayCount(video)"
+                                                    class="w-6 h-6 rounded bg-gray-700/50 hover:bg-gray-600/50 text-gray-300 flex items-center justify-center">
+                                                +
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <button @click="deleteVideo(video.name)"
+                                            class="w-8 h-8 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 flex items-center justify-center flex-shrink-0">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                        </svg>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </template>
+                    <div x-show="Object.keys(videoStatus).length === 0" class="glass rounded-xl p-8 text-center text-gray-500 text-sm">
+                        暂无视频配置，点击「添加视频」开始
+                    </div>
+                </div>
+
+                <!-- 视频访问Agent状态 -->
+                <div class="glass rounded-xl p-3 mt-4 border border-gray-700/30">
+                    <h3 class="text-xs font-semibold text-gray-400 mb-2 flex items-center gap-2">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/>
+                        </svg>
+                        视频访问 Agent 状态
+                    </h3>
+                    <div class="grid grid-cols-2 md:grid-cols-5 gap-2">
+                        <template x-for="agent in videoAgentsSync" :key="'sync-' + agent.id">
+                            <div class="bg-gray-800/30 rounded-lg p-2 border border-gray-700/30">
+                                <div class="flex items-center justify-between mb-1">
+                                    <span class="text-xs font-medium text-gray-300 truncate" x-text="agent.name"></span>
+                                    <span class="w-2 h-2 rounded-full"
+                                          :class="agent.running && !agent.paused ? 'bg-green-400 animate-pulse' : (agent.paused ? 'bg-yellow-400' : 'bg-gray-500')"></span>
+                                </div>
+                                <div class="text-[10px] text-gray-500 truncate" x-text="agent.current_video"></div>
+                                <div class="text-[10px] text-gray-600">
+                                    播放: <span class="text-indigo-400" x-text="agent.play_count || 0"></span> 次
+                                </div>
+                            </div>
+                        </template>
+                        <template x-for="agent in videoAgentsAsync" :key="'async-' + agent.id">
+                            <div class="bg-cyan-900/10 rounded-lg p-2 border border-cyan-700/30">
+                                <div class="flex items-center justify-between mb-1">
+                                    <span class="text-xs font-medium text-cyan-300 truncate" x-text="agent.name"></span>
+                                    <span class="w-2 h-2 rounded-full"
+                                          :class="agent.running && !agent.paused ? 'bg-green-400 animate-pulse' : (agent.paused ? 'bg-yellow-400' : 'bg-gray-500')"></span>
+                                </div>
+                                <div class="text-[10px] text-cyan-500/70 truncate" x-text="agent.current_video"></div>
+                                <div class="text-[10px] text-cyan-600">
+                                    播放: <span class="text-cyan-400" x-text="agent.play_count || 0"></span> 次
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 添加视频弹窗 -->
+            <div x-show="showAddVideoModal" x-transition:enter="fade-in"
+                 class="fixed inset-0 z-50 flex items-center justify-center p-4 modal-backdrop"
+                 style="display: none;">
+                <div class="glass rounded-2xl p-5 w-full max-w-md border border-gray-700/30" @click.outside="showAddVideoModal = false">
+                    <h3 class="text-base font-semibold text-gray-200 mb-4 flex items-center gap-2">
+                        <svg class="w-5 h-5 text-pink-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                        </svg>
+                        添加新视频
+                    </h3>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-xs text-gray-400 mb-1">视频名称</label>
+                            <input type="text" x-model="newVideo.name" placeholder="例如：产品演示视频"
+                                   class="w-full px-3 py-2 bg-gray-800/50 border border-gray-700 rounded-lg text-gray-200 text-sm focus:outline-none focus:border-indigo-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-400 mb-1">视频URL</label>
+                            <input type="text" x-model="newVideo.url" placeholder="https://example.com/video.mp4 或视频页面URL"
+                                   class="w-full px-3 py-2 bg-gray-800/50 border border-gray-700 rounded-lg text-gray-200 text-sm focus:outline-none focus:border-indigo-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-400 mb-1">播放次数</label>
+                            <input type="number" x-model="newVideo.play_count" min="1" max="100"
+                                   class="w-full px-3 py-2 bg-gray-800/50 border border-gray-700 rounded-lg text-gray-200 text-sm focus:outline-none focus:border-indigo-500">
+                        </div>
+                    </div>
+                    <div class="flex items-center justify-end gap-2 mt-5">
+                        <button @click="showAddVideoModal = false"
+                                class="px-4 py-2 rounded-lg bg-gray-700/50 hover:bg-gray-600/50 text-gray-300 text-sm transition">
+                            取消
+                        </button>
+                        <button @click="addVideo()"
+                                :disabled="!newVideo.name || !newVideo.url"
+                                class="px-4 py-2 rounded-lg bg-pink-500/20 hover:bg-pink-500/30 text-pink-300 text-sm transition disabled:opacity-50 disabled:cursor-not-allowed">
+                            添加
+                        </button>
+                    </div>
+                </div>
+            </div>
         </div>
                 <footer class="text-center py-6 text-gray-600 text-xs">
             <p>AI Health Checker v3.0 · 同步+异步巡检 · WebSocket 实时推送 · 独立模块控制</p>
@@ -2017,11 +2237,174 @@
                 loadBrowserStatus() { /* removed - no Playwright */ },
                 triggerBrowserCheck(projectName) { /* removed - no Playwright */ },
 
+                // ===== 视频访问相关 =====
+                videoStatus: {},
+                videoLoading: false,
+                videoSyncRunning: false,
+                videoAsyncRunning: false,
+                videoAgentsSync: [],
+                videoAgentsAsync: [],
+                showAddVideoModal: false,
+                newVideo: { name: '', url: '', play_count: 5 },
+
+                get videoSuccessCount() {
+                    return Object.values(this.videoStatus).filter(v => v.success).length;
+                },
+                get videoFailCount() {
+                    return Object.values(this.videoStatus).filter(v => !v.success && v.error !== '未开始播放').length;
+                },
+
+                async loadVideoStatus() {
+                    this.videoLoading = true;
+                    try {
+                        const res = await fetch('/api/video-status');
+                        const data = await res.json();
+                        this.videoStatus = data.videos || {};
+                        this.videoSyncRunning = data.sync_running || false;
+                        this.videoAsyncRunning = data.async_running || false;
+                        // 加载agent状态
+                        this.loadVideoAgents();
+                    } catch(e) {
+                        console.error('加载视频状态失败:', e);
+                    } finally {
+                        this.videoLoading = false;
+                    }
+                },
+
+                async loadVideoAgents() {
+                    try {
+                        const res = await fetch('/api/video-agents');
+                        const data = await res.json();
+                        this.videoAgentsSync = data.sync_agents || [];
+                        this.videoAgentsAsync = data.async_agents || [];
+                    } catch(e) {
+                        console.error('加载视频Agent状态失败:', e);
+                    }
+                },
+
+                async startVideoVisits(type) {
+                    try {
+                        const res = await fetch('/api/video-start', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ type: type })
+                        });
+                        const data = await res.json();
+                        if (data.running) {
+                            this.showToast(`${type === 'sync' ? '同步' : '异步'}视频访问已启动`, 'success');
+                            if (type === 'sync') this.videoSyncRunning = true;
+                            else this.videoAsyncRunning = true;
+                        }
+                    } catch(e) {
+                        this.showToast('启动失败: ' + e.message, 'error');
+                    }
+                },
+
+                async stopVideoVisits(type) {
+                    try {
+                        const res = await fetch('/api/video-stop', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ type: type })
+                        });
+                        const data = await res.json();
+                        if (!data.running) {
+                            this.showToast(`${type === 'sync' ? '同步' : '异步'}视频访问已停止`, 'success');
+                            if (type === 'sync') this.videoSyncRunning = false;
+                            else this.videoAsyncRunning = false;
+                        }
+                    } catch(e) {
+                        this.showToast('停止失败: ' + e.message, 'error');
+                    }
+                },
+
+                async addVideo() {
+                    if (!this.newVideo.name || !this.newVideo.url) return;
+                    try {
+                        const res = await fetch('/api/video-config', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                videos: [{
+                                    name: this.newVideo.name,
+                                    url: this.newVideo.url,
+                                    play_count: parseInt(this.newVideo.play_count) || 5
+                                }]
+                            })
+                        });
+                        const data = await res.json();
+                        if (data.videos) {
+                            this.showToast('视频添加成功', 'success');
+                            this.showAddVideoModal = false;
+                            this.newVideo = { name: '', url: '', play_count: 5 };
+                            await this.loadVideoStatus();
+                        }
+                    } catch(e) {
+                        this.showToast('添加失败: ' + e.message, 'error');
+                    }
+                },
+
+                async deleteVideo(name) {
+                    this.showConfirm(
+                        '删除视频',
+                        `确定要删除「${name}」吗？`,
+                        async () => {
+                            try {
+                                const res = await fetch('/api/video-config', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ delete: [name] })
+                                });
+                                const data = await res.json();
+                                if (data.deleted && data.deleted.length > 0) {
+                                    this.showToast('视频已删除', 'success');
+                                    await this.loadVideoStatus();
+                                }
+                            } catch(e) {
+                                this.showToast('删除失败: ' + e.message, 'error');
+                            }
+                        }
+                    );
+                },
+
+                async updatePlayCount(video) {
+                    const count = Math.max(1, Math.min(100, parseInt(video.play_count) || 5));
+                    video.play_count = count;
+                    try {
+                        const res = await fetch('/api/video-config', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                videos: [{ name: video.name, url: video.url, play_count: count }]
+                            })
+                        });
+                        const data = await res.json();
+                        if (data.videos) {
+                            this.showToast('播放次数已更新', 'success');
+                        }
+                    } catch(e) {
+                        this.showToast('更新失败: ' + e.message, 'error');
+                    }
+                },
+
+                increasePlayCount(video) {
+                    const current = video.play_count || 5;
+                    video.play_count = Math.min(100, current + 1);
+                    this.updatePlayCount(video);
+                },
+
+                decreasePlayCount(video) {
+                    const current = video.play_count || 5;
+                    video.play_count = Math.max(1, current - 1);
+                    this.updatePlayCount(video);
+                },
+
                 async init() {
                     await this.loadConfig();
                     await this.loadData();
                     await this.loadAsyncCheckers();
                     await this.loadHealthInfo();
+                    await this.loadVideoStatus();
                     this.loadIndexNowInfo();
                     this.connectWS();
                     this.startAutoRefresh();
@@ -2319,6 +2702,10 @@
                         // 如果在访问日志 Tab，也刷新
                         if (this.activeTab === 'visits') {
                             this.loadVisitLogs();
+                        }
+                        // 如果在视频访问 Tab，也刷新
+                        if (this.activeTab === 'video') {
+                            this.loadVideoStatus();
                         }
                     }, 30000);
                 },

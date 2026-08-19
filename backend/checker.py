@@ -1282,3 +1282,485 @@ class CheckerManager:
             "log": log_entry,
         })
 
+
+
+# =====================================================================
+# 视频访问模块 - 独立于站点巡检
+# =====================================================================
+
+from config import (
+    VIDEO_REQUEST_TIMEOUT,
+    VIDEO_RANGE_BYTES,
+    VIDEO_MIN_DELAY,
+    VIDEO_MAX_DELAY,
+    VIDEO_RESULTS_FILE,
+)
+
+
+class VideoChecker:
+    """单个视频访问 agent - 模拟真实用户播放视频"""
+
+    def __init__(self, identity: dict, video_index: int = 0):
+        self.id = identity.get("id", video_index + 1)
+        self.name = identity.get("name", f"VideoAgent-{video_index + 1}")
+        self.user_agent = identity.get("user_agent", identity.get("user_agent", "Mozilla/5.0"))
+        self.ip_pool = identity.get("ip_pool", ["127.0.0.1"])
+        self.type = identity.get("type", "desktop")
+
+        self.running = False
+        self.task = None
+        self.play_count = 0
+        self.current_video = "空闲"
+        self.last_play_time = None
+        self._stop_event = asyncio.Event()
+        self._pause_event = asyncio.Event()
+        self._pause_event.set()
+
+        self._video_config = None
+
+    def _get_video_config(self):
+        if self._video_config is None:
+            from config import VideoConfig
+            self._video_config = VideoConfig.get_instance()
+        return self._video_config
+
+    def _build_video_headers(self, referer_url: str = None, is_range: bool = False) -> dict:
+        """构建视频请求头，模拟真实浏览器视频播放行为"""
+        ip = get_random_ip(self.ip_pool)
+        headers = {
+            "User-Agent": self.user_agent,
+            "Accept": "*/*",
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Connection": "keep-alive",
+            "Sec-Fetch-Dest": "video" if is_range else "document",
+            "Sec-Fetch-Mode": "no-cors" if is_range else "navigate",
+            "Sec-Fetch-Site": "same-origin" if referer_url else "none",
+            "Cache-Control": "max-age=0",
+            "Pragma": "no-cache",
+        }
+        if referer_url:
+            headers["Referer"] = referer_url
+        if is_range:
+            headers["Range"] = f"bytes=0-{VIDEO_RANGE_BYTES - 1}"
+            headers["Accept-Ranges"] = "bytes"
+        return headers
+
+    def _is_video_file_url(self, url: str) -> bool:
+        """判断URL是否直接指向视频文件"""
+        video_extensions = ('.mp4', '.webm', '.m3u8', '.ts', '.mov', '.avi', '.mkv', '.flv', '.wmv', '.ogg')
+        parsed = urlparse(url)
+        path = parsed.path.lower()
+        return any(path.endswith(ext) for ext in video_extensions)
+
+    async def visit_video(self, video: dict) -> dict:
+        """模拟访问视频
+        - 先访问视频页面（如果URL不是直接视频文件）
+        - 再用 Range 头请求视频数据（模拟播放器预加载）
+        """
+        self.current_video = video["name"]
+        url = video["url"]
+        result = {
+            "video_name": video["name"],
+            "video_url": url,
+            "checker_id": self.id,
+            "checker_name": self.name,
+            "checker_type": self.type,
+            "source_ip": get_random_ip(self.ip_pool),
+            "page_status": None,
+            "page_time_ms": None,
+            "video_status": None,
+            "video_time_ms": None,
+            "video_size_bytes": None,
+            "accept_ranges": False,
+            "success": False,
+            "error": None,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+        is_direct_video = self._is_video_file_url(url)
+
+        try:
+            if not is_direct_video:
+                # ---- 第一步：访问视频页面 ----
+                page_headers = self._build_video_headers(referer_url=None, is_range=False)
+                async with httpx.AsyncClient(
+                    headers=page_headers,
+                    timeout=VIDEO_REQUEST_TIMEOUT,
+                    follow_redirects=True,
+                    verify=True,
+                ) as page_client:
+                    page_start = time.time()
+                    page_resp = await page_client.get(url)
+                    page_elapsed = round((time.time() - page_start) * 1000, 2)
+                    result["page_status"] = page_resp.status_code
+                    result["page_time_ms"] = page_elapsed
+
+                    if page_resp.status_code >= 400:
+                        result["error"] = f"视频页面状态码 {page_resp.status_code}"
+                        self.current_video = "空闲"
+                        return result
+
+                    html = page_resp.text
+                    final_url = str(page_resp.url)
+
+                # ---- 第二步：从页面中提取视频源地址 ----
+                video_src = self._extract_video_src(html, final_url)
+                if not video_src:
+                    # 找不到视频源，用页面URL本身尝试作为视频URL
+                    video_src = url
+            else:
+                # 直接是视频文件URL
+                video_src = url
+                result["page_status"] = 200
+                result["page_time_ms"] = 0
+
+            # ---- 第三步：请求视频数据（Range 头模拟播放） ----
+            video_headers = self._build_video_headers(
+                referer_url=url if not is_direct_video else None,
+                is_range=True
+            )
+            async with httpx.AsyncClient(
+                headers=video_headers,
+                timeout=VIDEO_REQUEST_TIMEOUT,
+                follow_redirects=True,
+                verify=True,
+            ) as video_client:
+                video_start = time.time()
+                video_resp = await video_client.get(video_src)
+                video_elapsed = round((time.time() - video_start) * 1000, 2)
+                result["video_status"] = video_resp.status_code
+                result["video_time_ms"] = video_elapsed
+
+                # 获取视频大小
+                content_length = video_resp.headers.get("Content-Length")
+                if content_length:
+                    try:
+                        result["video_size_bytes"] = int(content_length)
+                    except (ValueError, TypeError):
+                        pass
+
+                # 检查是否支持 Range
+                accept_ranges = video_resp.headers.get("Accept-Ranges", "").lower()
+                result["accept_ranges"] = "bytes" in accept_ranges or video_resp.status_code == 206
+
+                # 判断成功（200 或 206 都算成功）
+                if video_resp.status_code in (200, 206):
+                    result["success"] = True
+                else:
+                    result["error"] = f"视频请求状态码 {video_resp.status_code}"
+
+        except httpx.TimeoutException:
+            result["error"] = "视频请求超时"
+        except httpx.ConnectError as e:
+            result["error"] = f"连接失败: {str(e)[:80]}"
+        except Exception as e:
+            result["error"] = f"未知错误: {str(e)[:80]}"
+            logger.error(f"[VideoAgent-{self.id}] {video['name']} 访问异常: {e}")
+
+        self.play_count += 1
+        self.last_play_time = datetime.now(timezone.utc).isoformat()
+        self.current_video = "空闲"
+
+        return result
+
+    def _extract_video_src(self, html: str, base_url: str) -> str | None:
+        """从HTML中提取视频源地址"""
+        # 1. <video src="..."> 或 <source src="...">
+        patterns = [
+            r'<video[^>]+src=["\']([^"\']+)["\']',
+            r'<source[^>]+src=["\']([^"\']+)["\']',
+            r'video(?:Url|Src)\s*[:=]\s*["\']([^"\']+)["\']',
+            r'poster\s*=\s*["\'][^"\']*["\'][^>]*src=["\']([^"\']+)["\']',
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, html, re.I)
+            if match:
+                src = match.group(1).strip()
+                if src:
+                    # 处理相对路径
+                    if src.startswith("//"):
+                        return "https:" + src
+                    elif src.startswith("http"):
+                        return src
+                    else:
+                        return urljoin(base_url, src)
+        return None
+
+    async def run_video_loop(self):
+        """视频访问主循环 - 按 play_count 依次访问每个视频"""
+        self.running = True
+        self._stop_event.clear()
+        self._pause_event.set()
+
+        video_config = self._get_video_config()
+        logger.info(f"[VideoAgent-{self.id}] {self.name} 启动（视频访问模式）")
+
+        while self.running:
+            await self._pause_event.wait()
+            if not self.running:
+                break
+
+            videos = video_config.get_videos()
+            if not videos:
+                await self._sleep_interruptible(30)
+                continue
+
+            # 每轮循环：按 play_count 依次访问每个视频
+            for video in videos:
+                if not self.running:
+                    break
+                if not self._pause_event.is_set():
+                    break
+
+                play_count = video.get("play_count", 5)
+                for i in range(play_count):
+                    if not self.running:
+                        break
+                    if not self._pause_event.is_set():
+                        break
+
+                    try:
+                        result = await self.visit_video(video)
+                        await VideoCheckerManager.save_result(result)
+
+                        if result["success"]:
+                            logger.info(f"[VideoAgent-{self.id}] 播放 {video['name']} ({i + 1}/{play_count}) 成功 ({result.get('video_time_ms', 0)}ms)")
+                        else:
+                            logger.warning(f"[VideoAgent-{self.id}] 播放 {video['name']} 失败: {result.get('error', 'unknown')}")
+                    except Exception as e:
+                        logger.error(f"[VideoAgent-{self.id}] 播放 {video['name']} 异常: {e}")
+
+                    # 每次播放间随机延迟（模拟真实观看）
+                    if i < play_count - 1 and self.running and self._pause_event.is_set():
+                        delay = random.uniform(VIDEO_MIN_DELAY, VIDEO_MAX_DELAY)
+                        await self._sleep_interruptible(delay)
+
+                # 不同视频之间也加短暂延迟
+                if self.running and self._pause_event.is_set():
+                    await self._sleep_interruptible(random.uniform(1, 3))
+
+            # 一轮循环结束后短暂休息
+            if self.running and self._pause_event.is_set():
+                await self._sleep_interruptible(random.uniform(10, 30))
+
+        logger.info(f"[VideoAgent-{self.id}] {self.name} 已停止")
+        self.running = False
+
+    async def _sleep_interruptible(self, seconds: float):
+        """可中断睡眠"""
+        elapsed = 0
+        step = min(1.0, max(0.5, seconds / 30))
+        while elapsed < seconds and self.running and self._pause_event.is_set():
+            await asyncio.sleep(min(step, seconds - elapsed))
+            elapsed += step
+
+    def stop(self):
+        self.running = False
+        self._stop_event.set()
+        self._pause_event.set()
+
+    def pause(self):
+        self._pause_event.clear()
+
+    def resume(self):
+        self._pause_event.set()
+
+    @property
+    def paused(self) -> bool:
+        return not self._pause_event.is_set()
+
+    def get_status(self) -> dict:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "type": self.type,
+            "user_agent": self.user_agent,
+            "ip_sample": self.ip_pool[0] if self.ip_pool else "N/A",
+            "running": self.running,
+            "paused": self.paused,
+            "play_count": self.play_count,
+            "current_video": self.current_video,
+            "last_play_time": self.last_play_time,
+        }
+
+
+class VideoCheckerManager:
+    """视频访问管理器 - 管理视频访问agent和结果存储"""
+
+    _sync_checkers: dict[int, VideoChecker] = {}
+    _async_checkers: dict[int, VideoChecker] = {}
+    _results: dict[str, list[dict]] = {}  # video_name -> [history]
+    _latest: dict[str, dict] = {}  # video_name -> latest result
+    _lock = asyncio.Lock()
+    _initialized = False
+
+    @classmethod
+    async def initialize(cls):
+        """初始化视频访问管理器"""
+        if cls._initialized:
+            return
+
+        os.makedirs(os.path.dirname(VIDEO_RESULTS_FILE), exist_ok=True)
+        await cls._load_results()
+        cls._initialized = True
+        logger.info("[VideoCheckerManager] 视频访问管理器初始化完成")
+
+    @classmethod
+    async def _load_results(cls):
+        """从文件加载视频访问结果"""
+        async with cls._lock:
+            if os.path.exists(VIDEO_RESULTS_FILE):
+                try:
+                    with open(VIDEO_RESULTS_FILE, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    cls._results = data.get("history", {})
+                    cls._latest = data.get("latest", {})
+                    logger.info(f"[VideoCheckerManager] 已加载视频访问结果，共 {len(cls._latest)} 个视频")
+                except Exception as e:
+                    logger.error(f"[VideoCheckerManager] 加载视频访问结果失败: {e}")
+                    cls._results = {}
+                    cls._latest = {}
+
+    @classmethod
+    async def _save_results_to_file(cls):
+        """保存视频访问结果到文件"""
+        async with cls._lock:
+            try:
+                data = {
+                    "history": {k: v[-20:] for k, v in cls._results.items()},
+                    "latest": cls._latest,
+                    "last_updated": datetime.now(timezone.utc).isoformat(),
+                }
+                os.makedirs(os.path.dirname(VIDEO_RESULTS_FILE), exist_ok=True)
+                with open(VIDEO_RESULTS_FILE, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+            except Exception as e:
+                logger.error(f"[VideoCheckerManager] 保存视频访问结果失败: {e}")
+
+    @classmethod
+    async def save_result(cls, result: dict):
+        """保存单次视频访问结果"""
+        video_name = result["video_name"]
+        async with cls._lock:
+            cls._latest[video_name] = result
+            if video_name not in cls._results:
+                cls._results[video_name] = []
+            cls._results[video_name].append(result)
+            if len(cls._results[video_name]) > HISTORY_MAX_SIZE:
+                cls._results[video_name] = cls._results[video_name][-HISTORY_MAX_SIZE:]
+
+        asyncio.create_task(cls._save_results_to_file())
+        # WebSocket 推送
+        await CheckerManager._ws_broadcast({
+            "type": "video_status_update",
+            "video": result,
+        })
+
+    @classmethod
+    def get_all_status(cls) -> dict[str, dict]:
+        return cls._latest.copy()
+
+    @classmethod
+    def get_video_history(cls, video_name: str) -> list[dict]:
+        return cls._results.get(video_name, [])[-20:]
+
+    # ===== 同步视频访问 =====
+    @classmethod
+    async def start_sync(cls):
+        """启动同步视频访问（使用同步Checker身份池）"""
+        await cls.initialize()
+        # 使用同步身份池中的前5个身份作为视频访问agent
+        from config import CHECKER_IDENTITIES
+        identities = CHECKER_IDENTITIES[:5]
+        cls._sync_checkers = {}
+        for i, identity in enumerate(identities):
+            checker = VideoChecker(identity, video_index=i)
+            cls._sync_checkers[checker.id] = checker
+            checker.task = asyncio.create_task(checker.run_video_loop())
+        logger.info(f"[VideoCheckerManager] 同步视频访问已启动，共 {len(cls._sync_checkers)} 个agent")
+
+    @classmethod
+    async def stop_sync(cls):
+        """停止同步视频访问"""
+        for checker in cls._sync_checkers.values():
+            if checker.running:
+                checker.stop()
+                if checker.task:
+                    checker.task.cancel()
+        logger.info("[VideoCheckerManager] 同步视频访问已停止")
+
+    @classmethod
+    def pause_sync(cls):
+        for checker in cls._sync_checkers.values():
+            checker.pause()
+
+    @classmethod
+    def resume_sync(cls):
+        for checker in cls._sync_checkers.values():
+            checker.resume()
+
+    # ===== 异步视频访问 =====
+    @classmethod
+    async def start_async(cls):
+        """启动异步视频访问（使用异步身份池）"""
+        await cls.initialize()
+        from config import ASYNC_CHECKER_IDENTITIES
+        identities = ASYNC_CHECKER_IDENTITIES[:5]
+        cls._async_checkers = {}
+        for i, identity in enumerate(identities):
+            # 给异步身份补充id和name
+            full_identity = {
+                "id": 100 + i,
+                "name": f"AsyncVideo-{i + 1}",
+                "user_agent": identity["user_agent"],
+                "ip_pool": ["172.16.0." + str(10 + i) for _ in range(5)],
+                "type": identity["type"],
+            }
+            checker = VideoChecker(full_identity, video_index=i)
+            cls._async_checkers[checker.id] = checker
+            checker.task = asyncio.create_task(checker.run_video_loop())
+        logger.info(f"[VideoCheckerManager] 异步视频访问已启动，共 {len(cls._async_checkers)} 个agent")
+
+    @classmethod
+    async def stop_async(cls):
+        """停止异步视频访问"""
+        for checker in cls._async_checkers.values():
+            if checker.running:
+                checker.stop()
+                if checker.task:
+                    checker.task.cancel()
+        logger.info("[VideoCheckerManager] 异步视频访问已停止")
+
+    @classmethod
+    def pause_async(cls):
+        for checker in cls._async_checkers.values():
+            checker.pause()
+
+    @classmethod
+    def resume_async(cls):
+        for checker in cls._async_checkers.values():
+            checker.resume()
+
+    @classmethod
+    def get_sync_status(cls) -> list[dict]:
+        return [c.get_status() for c in cls._sync_checkers.values()]
+
+    @classmethod
+    def get_async_status(cls) -> list[dict]:
+        return [c.get_status() for c in cls._async_checkers.values()]
+
+    @classmethod
+    def get_all_agents(cls) -> dict:
+        return {
+            "sync": cls.get_sync_status(),
+            "async": cls.get_async_status(),
+        }
+
+    @classmethod
+    def is_sync_running(cls) -> bool:
+        return any(c.running and not c.paused for c in cls._sync_checkers.values())
+
+    @classmethod
+    def is_async_running(cls) -> bool:
+        return any(c.running and not c.paused for c in cls._async_checkers.values())

@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from checker import CheckerManager
 from async_checker import AsyncCheckerManager
 from indexnow_pusher import IndexNowPusher
-from config import PROJECTS, RuntimeConfig, get_project_by_name
+from config import PROJECTS, RuntimeConfig, get_project_by_name, VideoConfig
 
 logger = logging.getLogger("health_checker")
 
@@ -186,6 +186,10 @@ async def lifespan(app: FastAPI):
     config = RuntimeConfig.get_instance()
     await config.load()
     config.register_listener(on_config_change)
+
+    # 加载视频配置
+    video_config = VideoConfig.get_instance()
+    await video_config.load()
 
     # 启动同步Checker
     await CheckerManager.initialize()
@@ -779,3 +783,165 @@ async def websocket_endpoint(websocket: WebSocket):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8700, reload=False)
+
+
+# ========== 视频访问 API ==========
+
+class VideoTypeRequest(BaseModel):
+    type: str = Field(default="sync", description="sync 或 async")
+
+    @field_validator("type")
+    @classmethod
+    def validate_type(cls, v):
+        if v not in ("sync", "async"):
+            raise ValueError("type 必须是 sync 或 async")
+        return v
+
+
+class VideoConfigItem(BaseModel):
+    name: str
+    url: str
+    play_count: int = Field(default=5, ge=1, le=100)
+
+
+class VideoConfigBatchRequest(BaseModel):
+    videos: list[VideoConfigItem] | None = None  # 批量更新/新增
+    delete: list[str] | None = None  # 批量删除名称列表
+
+
+@app.get("/api/video-status")
+async def get_video_status():
+    """获取视频访问状态（每个视频的最新访问结果）"""
+    from checker import VideoCheckerManager
+    await VideoCheckerManager.initialize()
+    video_config = VideoConfig.get_instance()
+    videos = video_config.get_videos()
+    status = VideoCheckerManager.get_all_status()
+
+    all_videos = {}
+    for v in videos:
+        base = status.get(
+            v["name"],
+            {
+                "video_name": v["name"],
+                "video_url": v["url"],
+                "success": False,
+                "video_status": None,
+                "video_time_ms": None,
+                "page_status": None,
+                "page_time_ms": None,
+                "timestamp": None,
+                "error": "未开始播放",
+            },
+        ).copy()
+        base["name"] = v["name"]
+        base["url"] = v["url"]
+        base["play_count"] = v["play_count"]
+        all_videos[v["name"]] = base
+
+    return {
+        "videos": all_videos,
+        "sync_running": VideoCheckerManager.is_sync_running(),
+        "async_running": VideoCheckerManager.is_async_running(),
+    }
+
+
+@app.get("/api/video-config")
+async def get_video_config():
+    """获取视频配置列表"""
+    video_config = VideoConfig.get_instance()
+    return {
+        "videos": video_config.get_videos(),
+        "total": len(video_config.get_videos()),
+    }
+
+
+@app.post("/api/video-config")
+async def update_video_config(req: VideoConfigBatchRequest):
+    """批量更新视频配置（新增/更新/删除）"""
+    video_config = VideoConfig.get_instance()
+    added = []
+    updated = []
+    deleted = []
+
+    # 新增/更新
+    if req.videos:
+        for v in req.videos:
+            result = await video_config.add_video(v.name, v.url, v.play_count)
+            if result["action"] == "added":
+                added.append(result["video"])
+            else:
+                updated.append(result["video"])
+
+    # 删除
+    if req.delete:
+        for name in req.delete:
+            if await video_config.delete_video(name):
+                deleted.append(name)
+
+    logger.info(
+        f"[VideoConfig] 配置更新: 新增 {len(added)} 个, "
+        f"更新 {len(updated)} 个, 删除 {len(deleted)} 个"
+    )
+
+    return {
+        "message": "视频配置已更新",
+        "added": added,
+        "updated": updated,
+        "deleted": deleted,
+        "videos": video_config.get_videos(),
+    }
+
+
+@app.post("/api/video-start")
+async def start_video_visits(req: VideoTypeRequest):
+    """启动视频访问"""
+    from checker import VideoCheckerManager
+    await VideoCheckerManager.initialize()
+
+    if req.type == "sync":
+        await VideoCheckerManager.start_sync()
+        logger.info("[Video] 同步视频访问已启动")
+    else:
+        await VideoCheckerManager.start_async()
+        logger.info("[Video] 异步视频访问已启动")
+
+    return {
+        "message": f"{req.type} 视频访问已启动",
+        "type": req.type,
+        "running": True,
+    }
+
+
+@app.post("/api/video-stop")
+async def stop_video_visits(req: VideoTypeRequest):
+    """停止视频访问"""
+    from checker import VideoCheckerManager
+
+    if req.type == "sync":
+        await VideoCheckerManager.stop_sync()
+        logger.info("[Video] 同步视频访问已停止")
+    else:
+        await VideoCheckerManager.stop_async()
+        logger.info("[Video] 异步视频访问已停止")
+
+    return {
+        "message": f"{req.type} 视频访问已停止",
+        "type": req.type,
+        "running": False,
+    }
+
+
+@app.get("/api/video-agents")
+async def get_video_agents():
+    """获取视频访问agent状态"""
+    from checker import VideoCheckerManager
+    agents = VideoCheckerManager.get_all_agents()
+    return {
+        "sync_total": len(agents["sync"]),
+        "async_total": len(agents["async"]),
+        "sync_agents": agents["sync"],
+        "async_agents": agents["async"],
+        "sync_running": VideoCheckerManager.is_sync_running(),
+        "async_running": VideoCheckerManager.is_async_running(),
+    }

@@ -123,6 +123,22 @@ DATA_DIR = os.path.join(_this_dir, "data")
 RESULTS_FILE = os.path.join(DATA_DIR, "check_results.json")
 CONFIG_FILE = os.path.join(DATA_DIR, "config.json")
 
+# ========== 视频访问配置 ==========
+VIDEO_PROJECTS = [
+    # 示例：
+    # {"name": "视频1", "url": "https://example.com/video1.mp4", "play_count": 10},
+    # {"name": "视频2", "url": "https://example.com/video2", "play_count": 5},
+]
+
+VIDEO_CONFIG_FILE = os.path.join(DATA_DIR, "video_config.json")
+VIDEO_RESULTS_FILE = os.path.join(DATA_DIR, "video_results.json")
+
+# 视频播放相关常量
+VIDEO_REQUEST_TIMEOUT = 30   # 视频请求超时时间（秒）
+VIDEO_RANGE_BYTES = 524288   # Range 请求字节数（512KB，模拟播放器预加载）
+VIDEO_MIN_DELAY = 2          # 每次访问间最小延迟（秒）
+VIDEO_MAX_DELAY = 5          # 每次访问间最大延迟（秒）
+
 # ========== 20个 Checker 的独立身份 ==========
 CHECKER_IDENTITIES = [
     {
@@ -294,6 +310,15 @@ def get_project_by_name(name: str) -> dict | None:
     for p in PROJECTS:
         if p["name"] == name:
             return p
+    return None
+
+
+def get_video_by_name(name: str) -> dict | None:
+    """根据名称获取视频项目（从 VideoConfig 中读取）"""
+    videos = VideoConfig.get_instance().get_videos()
+    for v in videos:
+        if v["name"] == name:
+            return v
     return None
 
 
@@ -672,3 +697,122 @@ def re_match_time(s: str) -> bool:
     import re
     return bool(re.match(r'^\d{2}:\d{2}$', s))
 
+
+
+# ========== 视频配置管理 ==========
+class VideoConfig:
+    """视频访问配置管理 - 支持持久化到 video_config.json，动态增删改"""
+
+    _instance = None
+    _lock = asyncio.Lock()
+
+    def __init__(self):
+        self._videos: list[dict] = list(VIDEO_PROJECTS)
+        self._loaded = False
+
+    @classmethod
+    def get_instance(cls) -> "VideoConfig":
+        if cls._instance is None:
+            cls._instance = VideoConfig()
+        return cls._instance
+
+    async def load(self):
+        """从文件加载视频配置"""
+        async with self._lock:
+            if self._loaded:
+                return
+            if os.path.exists(VIDEO_CONFIG_FILE):
+                try:
+                    with open(VIDEO_CONFIG_FILE, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    if isinstance(data, list):
+                        self._videos = [
+                            {
+                                "name": v.get("name", ""),
+                                "url": v.get("url", ""),
+                                "play_count": max(1, min(100, int(v.get("play_count", 5)))),
+                            }
+                            for v in data
+                            if v.get("name") and v.get("url")
+                        ]
+                        print(f"[VideoConfig] 已加载 {len(self._videos)} 个视频配置")
+                except Exception as e:
+                    print(f"[VideoConfig] 加载视频配置失败，使用默认值: {e}")
+                    self._videos = list(VIDEO_PROJECTS)
+            else:
+                self._videos = list(VIDEO_PROJECTS)
+                print("[VideoConfig] 视频配置文件不存在，使用默认值")
+            # 保存一次以确保文件存在
+            await self._save_to_file()
+            self._loaded = True
+
+    async def _save_to_file(self):
+        """保存视频配置到文件（必须持有 _lock）"""
+        try:
+            os.makedirs(os.path.dirname(VIDEO_CONFIG_FILE), exist_ok=True)
+            with open(VIDEO_CONFIG_FILE, "w", encoding="utf-8") as f:
+                json.dump(self._videos, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"[VideoConfig] 保存视频配置失败: {e}")
+
+    def get_videos(self) -> list[dict]:
+        """获取所有视频配置"""
+        return [dict(v) for v in self._videos]
+
+    def get_video(self, name: str) -> dict | None:
+        """根据名称获取视频配置"""
+        for v in self._videos:
+            if v["name"] == name:
+                return dict(v)
+        return None
+
+    async def add_video(self, name: str, url: str, play_count: int = 5) -> dict:
+        """添加视频配置"""
+        play_count = max(1, min(100, int(play_count)))
+        async with self._lock:
+            # 检查是否已存在
+            for v in self._videos:
+                if v["name"] == name:
+                    v["url"] = url
+                    v["play_count"] = play_count
+                    await self._save_to_file()
+                    return {"action": "updated", "video": dict(v)}
+            # 新增
+            new_video = {"name": name, "url": url, "play_count": play_count}
+            self._videos.append(new_video)
+            await self._save_to_file()
+            return {"action": "added", "video": dict(new_video)}
+
+    async def update_video(self, name: str, url: str | None = None, play_count: int | None = None) -> dict | None:
+        """更新视频配置"""
+        async with self._lock:
+            for v in self._videos:
+                if v["name"] == name:
+                    if url is not None:
+                        v["url"] = url
+                    if play_count is not None:
+                        v["play_count"] = max(1, min(100, int(play_count)))
+                    await self._save_to_file()
+                    return dict(v)
+            return None
+
+    async def delete_video(self, name: str) -> bool:
+        """删除视频配置"""
+        async with self._lock:
+            original_len = len(self._videos)
+            self._videos = [v for v in self._videos if v["name"] != name]
+            if len(self._videos) < original_len:
+                await self._save_to_file()
+                return True
+            return False
+
+    async def set_play_count(self, name: str, play_count: int) -> dict | None:
+        """设置视频的播放次数"""
+        return await self.update_video(name, play_count=play_count)
+
+    def get_play_count(self, name: str) -> int:
+        """获取视频的播放次数"""
+        for v in self._videos:
+            if v["name"] == name:
+                return v["play_count"]
+        return 5
