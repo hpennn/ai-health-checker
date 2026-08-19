@@ -23,6 +23,7 @@ from config import (
     DATA_DIR,
     get_random_ip,
     assign_projects_to_checkers,
+    get_checker_role,
 )
 
 # ========== 日志配置 ==========
@@ -65,9 +66,11 @@ class Checker:
         self.type = identity["type"]
         self.projects = projects  # 负责检测的项目列表
 
+        self.role = get_checker_role(self.id)  # "main" 或 "visitor"
         self.running = False
         self.task = None
         self.check_count = 0
+        self.visit_count = 0  # 模拟访问计数
         self.current_task = "空闲"
         self.last_check_time = None
         self._stop_event = asyncio.Event()
@@ -281,8 +284,209 @@ class Checker:
 
         return result
 
+
+    async def visit_project(self, project: dict) -> dict:
+        """模拟访问项目 - 首页 + 内页爬取（Visitor 专用）"""
+        self.current_task = f"访问: {project['name']}"
+        url = project["url"]
+        result = {
+            "project_name": project["name"],
+            "project_url": url,
+            "checker_id": self.id,
+            "checker_name": self.name,
+            "role": "visitor",
+            "homepage_ok": False,
+            "homepage_status": None,
+            "homepage_time_ms": None,
+            "visited_pages": 0,
+            "all_ok": False,
+            "pages": [],
+            "errors": [],
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+
+        headers = self._build_headers()
+
+        try:
+            async with httpx.AsyncClient(
+                headers=headers,
+                timeout=REQUEST_TIMEOUT,
+                follow_redirects=True,
+                verify=True,
+            ) as client:
+                # 1. 访问首页
+                start_time = time.time()
+                resp = await client.get(url)
+                elapsed_ms = round((time.time() - start_time) * 1000, 2)
+                result["homepage_status"] = resp.status_code
+                result["homepage_time_ms"] = elapsed_ms
+                result["homepage_ok"] = resp.status_code == 200
+
+                if not result["homepage_ok"]:
+                    result["errors"].append({
+                        "url": url,
+                        "status": resp.status_code,
+                        "error": f"首页状态码 {resp.status_code}",
+                    })
+                    self.current_task = "空闲"
+                    return result
+
+                html = resp.text
+
+                # 2. 提取内链
+                from deep_inspector import DeepInspector
+                internal_links = DeepInspector._extract_internal_links(html, url)
+
+                if not internal_links:
+                    result["all_ok"] = True  # 没有内链也算正常
+                    self.current_task = "空闲"
+                    return result
+
+                # 3. 随机选 3-5 个内页
+                num_pages = min(random.randint(3, 5), len(internal_links))
+                sampled_links = random.sample(internal_links, num_pages)
+
+                # 4. 并发访问内页
+                async def _visit_page(page_url: str) -> dict:
+                    page_start = time.time()
+                    try:
+                        page_resp = await client.get(page_url, timeout=8)
+                        page_elapsed = round((time.time() - page_start) * 1000, 2)
+                        page_html = page_resp.text
+
+                        title_match = re.search(r"<title[^>]*>(.*?)</title>", page_html, re.I | re.S)
+                        has_title = bool(title_match and title_match.group(1).strip())
+
+                        ok = page_resp.status_code < 400
+                        page_result = {
+                            "url": page_url,
+                            "status": page_resp.status_code,
+                            "time_ms": page_elapsed,
+                            "has_title": has_title,
+                            "ok": ok,
+                        }
+                        if not ok:
+                            result["errors"].append({
+                                "url": page_url,
+                                "status": page_resp.status_code,
+                                "error": page_resp.reason_phrase or "Error",
+                            })
+                        return page_result
+                    except httpx.TimeoutException:
+                        page_elapsed = round((time.time() - page_start) * 1000, 2)
+                        result["errors"].append({
+                            "url": page_url,
+                            "status": None,
+                            "error": "Timeout",
+                        })
+                        return {
+                            "url": page_url,
+                            "status": None,
+                            "time_ms": page_elapsed,
+                            "has_title": False,
+                            "ok": False,
+                        }
+                    except Exception as e:
+                        page_elapsed = round((time.time() - page_start) * 1000, 2)
+                        result["errors"].append({
+                            "url": page_url,
+                            "status": None,
+                            "error": str(e)[:100],
+                        })
+                        return {
+                            "url": page_url,
+                            "status": None,
+                            "time_ms": page_elapsed,
+                            "has_title": False,
+                            "ok": False,
+                        }
+
+                page_results = await asyncio.gather(*[_visit_page(link) for link in sampled_links])
+                result["pages"] = list(page_results)
+                result["visited_pages"] = len(page_results)
+                result["all_ok"] = all(p["ok"] for p in page_results)
+
+        except httpx.TimeoutException:
+            result["errors"].append({"url": url, "status": None, "error": "请求超时"})
+        except httpx.ConnectError as e:
+            result["errors"].append({"url": url, "status": None, "error": f"连接失败: {str(e)[:80]}"})
+        except Exception as e:
+            result["errors"].append({"url": url, "status": None, "error": f"未知错误: {str(e)[:80]}"})
+            logger.error(f"[Visitor-{self.id}] {project['name']} 访问异常: {e}")
+
+        self.visit_count += 1
+        self.last_check_time = datetime.now(timezone.utc).isoformat()
+        self.current_task = "空闲"
+
+        return result
+
+    async def run_visitor_loop(self):
+        """Visitor 主循环 - 按权重随机选择项目进行模拟访问"""
+        self.running = True
+        self._stop_event.clear()
+        self._pause_event.set()
+
+        config = self._get_config()
+        logger.info(f"[Visitor-{self.id}] {self.name} 启动（模拟访问模式），共 {len(self.projects)} 个项目")
+
+        while self.running:
+            await self._pause_event.wait()
+            if not self.running:
+                break
+
+            # 按 visit_count 权重随机选择项目
+            project = self._pick_project_by_weight(config)
+            if not project:
+                await self._sleep_interruptible(30)
+                continue
+
+            try:
+                result = await self.visit_project(project)
+                await CheckerManager.save_visit_result(result)
+
+                # 有错误时记录日志
+                if result["errors"]:
+                    err_summary = "; ".join(
+                        f"{e['url'][:50]}: {e.get('error', 'error')}" for e in result["errors"][:3]
+                    )
+                    logger.warning(f"[Visitor-{self.id}] {project['name']} 发现错误: {err_summary}")
+            except Exception as e:
+                logger.error(f"[Visitor-{self.id}] 访问 {project['name']} 异常: {e}")
+
+            # 间隔
+            if self.running and self._pause_event.is_set():
+                interval = config.get_visitor_interval_seconds()
+                await self._sleep_interruptible(interval)
+
+        logger.info(f"[Visitor-{self.id}] {self.name} 已停止")
+        self.running = False
+
+    def _pick_project_by_weight(self, config) -> dict | None:
+        """按 visit_count 权重随机选择项目"""
+        if not self.projects:
+            return None
+        weights = [config.get_project_visit_count(p["name"]) for p in self.projects]
+        total = sum(weights)
+        if total <= 0:
+            return random.choice(self.projects)
+        # 加权随机选择
+        r = random.uniform(0, total)
+        cumulative = 0
+        for i, w in enumerate(weights):
+            cumulative += w
+            if r <= cumulative:
+                return self.projects[i]
+        return self.projects[-1]
+
     async def run_loop(self):
-        """Checker 主循环 - 支持暂停/恢复和动态间隔"""
+        """Checker 主循环 - 根据角色决定运行模式"""
+        if self.role == "visitor":
+            await self.run_visitor_loop()
+        else:
+            await self.run_main_loop()
+
+    async def run_main_loop(self):
+        """主 Checker 循环 - 支持暂停/恢复和动态间隔"""
         self.running = True
         self._stop_event.clear()
         self._pause_event.set()
@@ -387,6 +591,8 @@ class Checker:
             "check_count": self.check_count,
             "current_task": self.current_task,
             "last_check_time": self.last_check_time,
+            "role": self.role,
+            "visit_count": self.visit_count,
             "project_count": len(self.projects),
             "projects": [p["name"] for p in self.projects],
         }
@@ -399,6 +605,8 @@ class CheckerManager:
     _results: dict[str, list[dict]] = {}  # project_name -> [history]
     _latest: dict[str, dict] = {}  # project_name -> latest result
     _async_latest: dict[str, dict] = {}  # 异步Checker最新结果
+    _visit_results: dict[str, list[dict]] = {}  # 模拟访问记录 project_name -> [history]
+    _visit_latest: dict[str, dict] = {}  # 每个项目最新的模拟访问结果
     _lock = asyncio.Lock()
     _initialized = False
     _ws_clients: list = []  # WebSocket 客户端列表
@@ -445,6 +653,8 @@ class CheckerManager:
                     cls._results = data.get("history", {})
                     cls._latest = data.get("latest", {})
                     cls._async_latest = data.get("async_latest", {})
+                    cls._visit_results = data.get("visit_history", {})
+                    cls._visit_latest = data.get("visit_latest", {})
                     logger.info(f"[CheckerManager] 已加载历史结果，共 {len(cls._latest)} 个项目")
                 except Exception as e:
                     logger.error(f"[CheckerManager] 加载历史结果失败: {e}")
@@ -461,6 +671,8 @@ class CheckerManager:
                     "history": cls._results,
                     "latest": cls._latest,
                     "async_latest": cls._async_latest,
+                    "visit_history": cls._visit_results,
+                    "visit_latest": cls._visit_latest,
                     "last_updated": datetime.now(timezone.utc).isoformat(),
                 }
                 os.makedirs(os.path.dirname(RESULTS_FILE), exist_ok=True)
@@ -537,6 +749,51 @@ class CheckerManager:
             "info" if result["status"] == "online" else "warning",
             f"[异步] {project_name}: {result['status']} ({detail})"
         )
+
+    @classmethod
+    async def save_visit_result(cls, result: dict):
+        """保存模拟访问结果（Visitor）"""
+        project_name = result["project_name"]
+        async with cls._lock:
+            cls._visit_latest[project_name] = result
+            if project_name not in cls._visit_results:
+                cls._visit_results[project_name] = []
+            cls._visit_results[project_name].append(result)
+            if len(cls._visit_results[project_name]) > HISTORY_MAX_SIZE:
+                cls._visit_results[project_name] = cls._visit_results[project_name][-HISTORY_MAX_SIZE:]
+
+        asyncio.create_task(cls._save_results_to_file())
+        # WebSocket 推送
+        await cls._ws_broadcast({
+            "type": "visit_update",
+            "project": result,
+        })
+        # 记录实时日志
+        status_str = "正常" if result.get("all_ok") else "异常"
+        cls._add_log(
+            "info" if result.get("all_ok") else "warning",
+            f"[访问] #{result.get('checker_id', '?')} {project_name}: {status_str} ({result.get('visited_pages', 0)}页)"
+        )
+
+    @classmethod
+    def get_visit_latest(cls, project_name: str) -> dict | None:
+        """获取单个项目的最新模拟访问结果"""
+        return cls._visit_latest.get(project_name)
+
+    @classmethod
+    def get_visit_all_latest(cls) -> dict[str, dict]:
+        """获取所有项目的最新模拟访问结果"""
+        return cls._visit_latest.copy()
+
+    @classmethod
+    def get_visit_history(cls, project_name: str) -> list[dict]:
+        """获取单个项目的模拟访问历史"""
+        return cls._visit_results.get(project_name, [])[-20:]
+
+    @classmethod
+    def get_visitor_count(cls) -> int:
+        """获取运行中的 Visitor 数量"""
+        return sum(1 for c in cls._checkers.values() if c.role == "visitor" and c.running and not c.paused)
 
     @classmethod
     async def start_all(cls):
@@ -711,6 +968,8 @@ class CheckerManager:
             "slow": slow,
             "avg_response_time_ms": avg_response_time,
             "last_check_time": last_check,
+            "visitors_running": sum(1 for c in cls._checkers.values() if c.role == "visitor" and c.running and not c.paused),
+            "visitors_total": sum(1 for c in cls._checkers.values() if c.role == "visitor"),
         }
 
     @classmethod
@@ -762,6 +1021,9 @@ class CheckerManager:
             "checkers": {
                 "sync_total": len(cls._checkers),
                 "sync_running": sum(1 for c in cls._checkers.values() if c.running and not c.paused),
+                "main_running": sum(1 for c in cls._checkers.values() if c.role == "main" and c.running and not c.paused),
+                "visitor_total": sum(1 for c in cls._checkers.values() if c.role == "visitor"),
+                "visitor_running": sum(1 for c in cls._checkers.values() if c.role == "visitor" and c.running and not c.paused),
                 "async_total": 0,  # 由main.py补充
                 "async_running": 0,
             },"inspections_today": cls._inspection_count,

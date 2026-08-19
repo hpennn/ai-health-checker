@@ -8,35 +8,35 @@ from datetime import datetime
 # ========== 监控项目列表 ==========
 PROJECTS = [
     # === zhinenti.cn 系列 ===
-    {"name": "智能工作台", "url": "https://www.zhinenti.cn", "category": "AI工具"},
-    {"name": "部署助手", "url": "https://deploy.zhinenti.cn", "category": "AI工具"},
-    {"name": "营销助手", "url": "https://craft.zhinenti.cn", "category": "AI工具"},
-    {"name": "智能部署", "url": "https://auto.zhinenti.cn", "category": "AI工具"},
+    {"name": "智能工作台", "url": "https://www.zhinenti.cn", "category": "AI工具", "visit_count": 5},
+    {"name": "部署助手", "url": "https://deploy.zhinenti.cn", "category": "AI工具", "visit_count": 5},
+    {"name": "营销助手", "url": "https://craft.zhinenti.cn", "category": "AI工具", "visit_count": 5},
+    {"name": "智能部署", "url": "https://auto.zhinenti.cn", "category": "AI工具", "visit_count": 5},
     # === zhinenti.vip / xyz ===
-    {"name": "祝福生成", "url": "https://www.zhinenti.vip", "category": "工具"},
-    {"name": "AI文案", "url": "https://www.zhinenti.xyz", "category": "AI工具"},
+    {"name": "祝福生成", "url": "https://www.zhinenti.vip", "category": "工具", "visit_count": 5},
+    {"name": "AI文案", "url": "https://www.zhinenti.xyz", "category": "AI工具", "visit_count": 5},
     # === hpenn.online ===
-    {"name": "起名工具", "url": "https://www.hpenn.online", "category": "AI工具"},
+    {"name": "起名工具", "url": "https://www.hpenn.online", "category": "AI工具", "visit_count": 5},
     # === hpenn.xyz 系列 ===
-    {"name": "文本工具", "url": "https://www.hpenn.xyz", "category": "工具"},
-    {"name": "OCR识别", "url": "https://ocr.hpenn.xyz", "category": "工具"},
-    {"name": "AI简历", "url": "https://resume.hpenn.xyz", "category": "工具"},
-    {"name": "文档摘要", "url": "https://doc.hpenn.xyz", "category": "工具"},
-    {"name": "文档转换", "url": "https://convert.hpenn.xyz", "category": "工具"},
-    {"name": "批量图片编辑", "url": "https://imgedit.hpenn.xyz", "category": "工具"},
-    {"name": "图片尺寸", "url": "https://imgsize.hpenn.xyz", "category": "工具"},
-    {"name": "表格工具", "url": "https://table.hpenn.xyz", "category": "工具"},
+    {"name": "文本工具", "url": "https://www.hpenn.xyz", "category": "工具", "visit_count": 5},
+    {"name": "OCR识别", "url": "https://ocr.hpenn.xyz", "category": "工具", "visit_count": 5},
+    {"name": "AI简历", "url": "https://resume.hpenn.xyz", "category": "工具", "visit_count": 5},
+    {"name": "文档摘要", "url": "https://doc.hpenn.xyz", "category": "工具", "visit_count": 5},
+    {"name": "文档转换", "url": "https://convert.hpenn.xyz", "category": "工具", "visit_count": 5},
+    {"name": "批量图片编辑", "url": "https://imgedit.hpenn.xyz", "category": "工具", "visit_count": 5},
+    {"name": "图片尺寸", "url": "https://imgsize.hpenn.xyz", "category": "工具", "visit_count": 5},
+    {"name": "表格工具", "url": "https://table.hpenn.xyz", "category": "工具", "visit_count": 5},
     # === hpennn.xyz 系列 ===
-    {"name": "开发工具", "url": "https://www.hpennn.xyz", "category": "工具"},
-    {"name": "导航站", "url": "https://www.hpennn.online", "category": "工具"},
-    {"name": "智能搜索", "url": "https://smart.hpennn.xyz", "category": "工具"},
-    {"name": "PPT工具", "url": "https://ppt.hpennn.xyz", "category": "工具"},
-    {"name": "内容生成", "url": "https://content.hpennn.xyz", "category": "AI工具"},
+    {"name": "开发工具", "url": "https://www.hpennn.xyz", "category": "工具", "visit_count": 5},
+    {"name": "导航站", "url": "https://www.hpennn.online", "category": "工具", "visit_count": 5},
+    {"name": "智能搜索", "url": "https://smart.hpennn.xyz", "category": "工具", "visit_count": 5},
+    {"name": "PPT工具", "url": "https://ppt.hpennn.xyz", "category": "工具", "visit_count": 5},
+    {"name": "内容生成", "url": "https://content.hpennn.xyz", "category": "AI工具", "visit_count": 5},
     # === kuaisu 系列 ===
-    {"name": "图片工具", "url": "https://www.kuaisutupo.xyz", "category": "工具"},
-    {"name": "快速工具", "url": "https://www.kuaisu.online", "category": "工具"},
+    {"name": "图片工具", "url": "https://www.kuaisutupo.xyz", "category": "工具", "visit_count": 5},
+    {"name": "快速工具", "url": "https://www.kuaisu.online", "category": "工具", "visit_count": 5},
     # === IP直连（不推送IndexNow） ===
-    {"name": "AI客服管理", "url": "http://47.113.216.237:8600", "category": "AI工具"},
+    {"name": "AI客服管理", "url": "http://47.113.216.237:8600", "category": "AI工具", "visit_count": 5},
 ]
 
 # ========== 检查配置（基础常量） ==========
@@ -222,10 +222,22 @@ def get_project_by_name(name: str) -> dict | None:
     return None
 
 
+
+
+PROJECT_VISIT_COUNTS = {p["name"]: p.get("visit_count", 5) for p in PROJECTS}
+
 def assign_projects_to_checkers():
-    """每个Checker负责全部项目（随机巡查模式）"""
+    """分配项目给 Checker
+    - Checker id=1 (主Checker): 负责所有项目的完整健康检查
+    - Checker id=2-20 (Visitor): 负责所有项目的模拟访问
+    """
     assignments = {i["id"]: list(PROJECTS) for i in CHECKER_IDENTITIES}
     return assignments
+
+
+def get_checker_role(checker_id: int) -> str:
+    """获取 Checker 的角色：main(主健康检查) 或 visitor(模拟访问)"""
+    return "main" if checker_id == 1 else "visitor"
 
 
 def _default_search_keywords() -> dict:
@@ -277,6 +289,12 @@ class RuntimeConfig:
         self.async_checker_count = 0
         self.search_engine = "baidu"  # baidu / bing / google
         self.project_search_keywords = _default_search_keywords()
+        # 模拟访问（Visitor）配置
+        self.visitor_interval_min = 10
+        self.visitor_interval_max = 30
+        self.default_visit_count = 5
+        # 每个项目的 visit_count（可动态修改）
+        self.project_visit_counts = {p["name"]: p.get("visit_count", 5) for p in PROJECTS}
         self._listeners = []  # 配置变更回调
 
     @classmethod
@@ -459,6 +477,40 @@ class RuntimeConfig:
             if se in ("baidu", "bing", "google"):
                 self.search_engine = se
 
+        # ========== 模拟访问（Visitor）配置 ==========
+        if "visitor_interval_min" in data:
+            try:
+                v = int(data["visitor_interval_min"])
+                self.visitor_interval_min = max(1, min(1440, v))
+            except (ValueError, TypeError):
+                pass
+
+        if "visitor_interval_max" in data:
+            try:
+                v = int(data["visitor_interval_max"])
+                self.visitor_interval_max = max(1, min(1440, v))
+            except (ValueError, TypeError):
+                pass
+
+        if self.visitor_interval_min > self.visitor_interval_max:
+            self.visitor_interval_min, self.visitor_interval_max = self.visitor_interval_max, self.visitor_interval_min
+
+        if "default_visit_count" in data:
+            try:
+                v = int(data["default_visit_count"])
+                self.default_visit_count = max(1, min(100, v))
+            except (ValueError, TypeError):
+                pass
+
+        if "project_visit_counts" in data and isinstance(data["project_visit_counts"], dict):
+            for pname, vc in data["project_visit_counts"].items():
+                try:
+                    v = int(vc)
+                    if pname in self.project_visit_counts or any(p["name"] == pname for p in PROJECTS):
+                        self.project_visit_counts[pname] = max(1, min(100, v))
+                except (ValueError, TypeError):
+                    pass
+
         if "project_search_keywords" in data and isinstance(data["project_search_keywords"], dict):
             # 只更新存在的项目
             for pname, kws in data["project_search_keywords"].items():
@@ -484,6 +536,10 @@ class RuntimeConfig:
             "project_search_keywords": {
                 k: list(v) for k, v in self.project_search_keywords.items()
             },
+            "visitor_interval_min": self.visitor_interval_min,
+            "visitor_interval_max": self.visitor_interval_max,
+            "default_visit_count": self.default_visit_count,
+            "project_visit_counts": dict(self.project_visit_counts),
         }
 
     def is_within_time_range(self, now_time: datetime | None = None) -> bool:
@@ -516,6 +572,20 @@ class RuntimeConfig:
         if self.total_inspections_min == 0 and self.total_inspections_max == 0:
             return 0  # 不限
         return random.randint(self.total_inspections_min, self.total_inspections_max)
+
+    def get_project_visit_count(self, project_name: str) -> int:
+        """获取项目的模拟访问次数权重"""
+        return self.project_visit_counts.get(project_name, self.default_visit_count)
+
+    def set_project_visit_count(self, project_name: str, count: int):
+        """设置项目的模拟访问次数权重"""
+        count = max(1, min(100, count))
+        self.project_visit_counts[project_name] = count
+
+    def get_visitor_interval_seconds(self) -> float:
+        """获取模拟访问间隔（秒）"""
+        minutes = random.uniform(self.visitor_interval_min, self.visitor_interval_max)
+        return minutes * 60
 
     def get_project_keywords(self, project_name: str) -> list[str]:
         """获取项目的搜索关键词"""

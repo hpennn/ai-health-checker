@@ -951,7 +951,14 @@
                                                  x-text="project.checker_id || '-'"></div>
                                             <span class="text-xs text-gray-500">Checker</span>
                                         </div>
-                                        <span class="text-xs text-gray-500" x-text="formatTime(project.timestamp)"></span>
+                                        <div class="flex items-center gap-1.5" @click.stop>
+                                            <button @click="decreaseVisitCount(project.name)"
+                                                    class="w-5 h-5 rounded bg-gray-700/50 text-gray-400 hover:bg-gray-600/50 hover:text-gray-200 text-xs font-bold transition">-</button>
+                                            <span class="text-xs text-cyan-400 font-medium min-w-[24px] text-center" x-text="project.visit_count || 5"></span>
+                                            <button @click="increaseVisitCount(project.name)"
+                                                    class="w-5 h-5 rounded bg-gray-700/50 text-gray-400 hover:bg-gray-600/50 hover:text-gray-200 text-xs font-bold transition">+</button>
+                                            <span class="text-[10px] text-gray-600">次</span>
+                                        </div>
                                     </div>
                                 </div>
                             </template>
@@ -988,6 +995,62 @@
                                 暂无日志...
                             </div>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 模拟访问结果面板 -->
+            <div class="mb-6">
+                <div class="flex items-center justify-between mb-4">
+                    <h2 class="text-lg font-semibold text-gray-200">👥 模拟访问结果</h2>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs text-gray-500">
+                            <span class="text-cyan-400 font-medium" x-text="visitorRunningCount"></span>
+                            / <span x-text="visitorTotalCount"></span> 个访问者运行中
+                        </span>
+                    </div>
+                </div>
+                <div class="glass rounded-2xl p-4 border border-gray-700/30">
+                    <div x-show="Object.keys(visitLatest).length === 0"
+                         class="text-center text-gray-500 py-8 text-sm">
+                        暂无模拟访问数据，访问者正在启动...
+                    </div>
+                    <div x-show="Object.keys(visitLatest).length > 0" class="space-y-3">
+                        <template x-for="visit in Object.values(visitLatest).sort((a,b) => (b.all_ok?1:0) - (a.all_ok?1:0))" :key="visit.project_name">
+                            <div class="bg-gray-900/50 rounded-xl p-3 border border-gray-700/30">
+                                <div class="flex items-center justify-between mb-2">
+                                    <div class="flex items-center gap-2">
+                                        <div class="w-2 h-2 rounded-full"
+                                             :class="visit.all_ok ? 'bg-green-500' : 'bg-red-500'"></div>
+                                        <span class="font-medium text-gray-200 text-sm" x-text="visit.project_name"></span>
+                                    </div>
+                                    <div class="flex items-center gap-3 text-xs">
+                                        <span class="text-gray-500">
+                                            访问 <span class="text-cyan-400" x-text="visit.visited_pages || 0"></span> 页
+                                        </span>
+                                        <span class="text-gray-500" x-text="formatTime(visit.timestamp)"></span>
+                                    </div>
+                                </div>
+                                <div class="flex flex-wrap gap-2" x-show="visit.pages && visit.pages.length > 0">
+                                    <template x-for="page in visit.pages.slice(0, 6)" :key="page.url">
+                                        <div class="flex items-center gap-1 px-2 py-1 rounded text-[10px]"
+                                             :class="page.ok ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'"
+                                             :title="page.url">
+                                            <span x-text="page.status || 'err'"></span>
+                                            <span class="text-gray-500" x-text="(page.time_ms || 0).toFixed(0) + 'ms'"></span>
+                                        </div>
+                                    </template>
+                                </div>
+                                <div x-show="visit.errors && visit.errors.length > 0" class="mt-2">
+                                    <div class="text-xs text-red-400">
+                                        错误: <span x-text="visit.errors.length"></span> 个
+                                        <template x-for="(err, idx) in visit.errors.slice(0, 2)" :key="idx">
+                                            <span class="ml-2 text-red-300/70" x-text="(err.url || '').substring(0, 50) + ' - ' + (err.error || '')"></span>
+                                        </template>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
                     </div>
                 </div>
             </div>
@@ -1429,6 +1492,10 @@
                     async_checker_count: 0,
                     search_engine: 'baidu',
                     project_search_keywords: {},
+                    visitor_interval_min: 10,
+                    visitor_interval_max: 30,
+                    default_visit_count: 5,
+                    project_visit_counts: {},
                 },
 
                 // 原始配置（用于对比）
@@ -1440,6 +1507,16 @@
                     daily_limit: 0,
                     next_interval_minutes: null,
                     remaining: -1,
+                },
+
+                // 模拟访问数据
+                visitLatest: {},
+
+                get visitorRunningCount() {
+                    return this.agents.filter(a => a.role === 'visitor' && a.running && !a.paused).length;
+                },
+                get visitorTotalCount() {
+                    return this.agents.filter(a => a.role === 'visitor').length;
                 },
 
                 // WebSocket
@@ -1500,6 +1577,43 @@
                         const d = new Date(iso);
                         return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
                     } catch(e) { return ''; }
+                },
+
+                async increaseVisitCount(projectName) {
+                    const p = this.projects[projectName];
+                    if (!p) return;
+                    const current = p.visit_count || 5;
+                    const newCount = Math.min(100, current + 1);
+                    await this.updateVisitCount(projectName, newCount);
+                },
+
+                async decreaseVisitCount(projectName) {
+                    const p = this.projects[projectName];
+                    if (!p) return;
+                    const current = p.visit_count || 5;
+                    const newCount = Math.max(1, current - 1);
+                    await this.updateVisitCount(projectName, newCount);
+                },
+
+                async updateVisitCount(projectName, count) {
+                    try {
+                        const resp = await fetch('/api/project-visit-count', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ project_name: projectName, visit_count: count }),
+                        });
+                        const data = await resp.json();
+                        if (resp.ok) {
+                            if (this.projects[projectName]) {
+                                this.projects[projectName].visit_count = count;
+                            }
+                            this.showToast(`${projectName} 访问次数已更新为 ${count}`, 'success');
+                        } else {
+                            this.showToast(data.detail || '更新失败', 'error');
+                        }
+                    } catch (e) {
+                        this.showToast('更新失败: ' + e.message, 'error');
+                    }
                 },
 
                 showToast(message, type = 'info') {

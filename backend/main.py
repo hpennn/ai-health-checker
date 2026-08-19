@@ -76,6 +76,10 @@ class ConfigUpdateRequest(BaseModel):
     async_checker_count: int | None = Field(default=None, ge=0, le=30)
     search_engine: str | None = None
     project_search_keywords: dict | None = None
+    visitor_interval_min: int | None = Field(default=None, ge=1, le=1440)
+    visitor_interval_max: int | None = Field(default=None, ge=1, le=1440)
+    default_visit_count: int | None = Field(default=None, ge=1, le=100)
+    project_visit_counts: dict | None = None
     # 向后兼容：旧字段
     interval_minutes: int | None = Field(default=None, ge=1, le=1440)
     rounds_per_inspection: int | None = Field(default=None, ge=1, le=10)
@@ -104,6 +108,17 @@ class ConfigUpdateRequest(BaseModel):
                 for kw in kws:
                     if not isinstance(kw, str) or not kw.strip():
                         raise ValueError(f"项目 {pname} 的关键词不能为空")
+        return v
+
+    @field_validator("project_visit_counts")
+    @classmethod
+    def validate_visit_counts(cls, v):
+        if v is not None:
+            if not isinstance(v, dict):
+                raise ValueError("project_visit_counts 必须是字典")
+            for pname, vc in v.items():
+                if not isinstance(vc, int) or vc < 1 or vc > 100:
+                    raise ValueError(f"项目 {pname} 的访问次数必须是 1-100 的整数")
         return v
 
 
@@ -286,10 +301,15 @@ async def get_all_status():
         )
         all_projects[p["name"]] = base
 
+    # 给每个项目添加 visit_count
+    for pname, pdata in all_projects.items():
+        pdata["visit_count"] = config.get_project_visit_count(pname)
+
     return {
         "summary": summary,
         "projects": all_projects,
         "async_projects": async_status,
+        "visit_latest": CheckerManager.get_visit_all_latest(),
         "inspection_enabled": config.inspection_enabled,
         "within_time_range": config.is_within_time_range(),
         "inspection_stats": CheckerManager.get_inspection_stats(),
@@ -347,6 +367,64 @@ async def get_history():
 async def get_agents():
     agents = CheckerManager.get_checkers_status()
     return {"total": len(agents), "agents": agents}
+
+
+# ========== 模拟访问 API ==========
+@app.get("/api/visits")
+async def get_all_visits():
+    """获取所有项目的最新模拟访问结果"""
+    visits = CheckerManager.get_visit_all_latest()
+    return {
+        "total": len(visits),
+        "visits": visits,
+    }
+
+
+@app.get("/api/visits/{project_name}")
+async def get_project_visits(project_name: str):
+    """获取单个项目的模拟访问记录"""
+    project = get_project_by_name(project_name)
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+
+    latest = CheckerManager.get_visit_latest(project_name)
+    history = CheckerManager.get_visit_history(project_name)
+
+    return {
+        "project": project,
+        "latest": latest,
+        "history": history,
+    }
+
+
+class VisitCountUpdate(BaseModel):
+    project_name: str
+    visit_count: int = Field(ge=1, le=100)
+
+
+@app.post("/api/project-visit-count")
+async def update_project_visit_count(req: VisitCountUpdate):
+    """更新某个项目的 visit_count"""
+    project = get_project_by_name(req.project_name)
+    if not project:
+        raise HTTPException(status_code=404, detail="项目不存在")
+
+    config = RuntimeConfig.get_instance()
+    config.set_project_visit_count(req.project_name, req.visit_count)
+
+    # 持久化
+    update_result = await config.update({
+        "project_visit_counts": {req.project_name: req.visit_count}
+    })
+
+    logger.info(f"[VisitCount] {req.project_name} 访问次数更新为 {req.visit_count}")
+
+    return {
+        "message": f"{req.project_name} 访问次数已更新为 {req.visit_count}",
+        "project_name": req.project_name,
+        "visit_count": req.visit_count,
+        "config": config.to_dict(),
+    }
 
 
 # ========== 实时日志 API ==========
@@ -482,6 +560,18 @@ async def update_config(req: ConfigUpdateRequest):
 
     if req.project_search_keywords is not None:
         update_dict["project_search_keywords"] = req.project_search_keywords
+
+    if req.visitor_interval_min is not None:
+        update_dict["visitor_interval_min"] = req.visitor_interval_min
+
+    if req.visitor_interval_max is not None:
+        update_dict["visitor_interval_max"] = req.visitor_interval_max
+
+    if req.default_visit_count is not None:
+        update_dict["default_visit_count"] = req.default_visit_count
+
+    if req.project_visit_counts is not None:
+        update_dict["project_visit_counts"] = req.project_visit_counts
 
     if not update_dict:
         return {"message": "无配置更新", "config": config.to_dict(), "changed": []}
