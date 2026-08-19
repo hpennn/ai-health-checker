@@ -48,6 +48,17 @@ class ControlRequest(BaseModel):
         return v
 
 
+class BulkControlRequest(BaseModel):
+    type: str | None = None  # sync / async / None (both)
+
+    @field_validator("type")
+    @classmethod
+    def validate_type(cls, v):
+        if v is not None and v not in ("sync", "async"):
+            raise ValueError("type 必须是 sync、async 或不设置")
+        return v
+
+
 class TimeRange(BaseModel):
     start: str = Field(default="00:00", description="开始时间 HH:MM 格式")
     end: str = Field(default="23:59", description="结束时间 HH:MM 格式")
@@ -298,7 +309,11 @@ async def get_all_status():
                 "checker_id": None,
                 "timestamp": None,
             },
-        )
+        ).copy()
+        # 确保前端使用的字段名（name、url）存在，兼容 project_name / project_url
+        base["name"] = base.get("name") or base.get("project_name") or p["name"]
+        base["url"] = base.get("url") or base.get("project_url") or p["url"]
+        base["category"] = base.get("category") or p["category"]
         all_projects[p["name"]] = base
 
     # 给每个项目添加 visit_count
@@ -459,6 +474,63 @@ async def control_inspection(req: ControlRequest):
         await CheckerManager.ws_broadcast_control("stop")
         logger.info("[Control] 巡检已停止")
         return {"message": "巡检已停止", "enabled": False, "config": config.to_dict()}
+
+
+@app.post("/api/start-all")
+async def start_all(req: BulkControlRequest = BulkControlRequest()):
+    """批量启动 Checker
+    - type="sync": 只启动同步 Checker
+    - type="async": 只启动异步 Checker
+    - 不设 type：同时启动两者
+    """
+    started = []
+    config = RuntimeConfig.get_instance()
+    in_range = config.is_within_time_range()
+
+    if req.type is None or req.type == "sync":
+        if in_range:
+            CheckerManager.resume_all()
+        started.append("sync")
+        logger.info("[StartAll] 同步Checker已启动" + ("" if in_range else "（不在时间段内，等待时间段）"))
+
+    if req.type is None or req.type == "async":
+        if in_range:
+            AsyncCheckerManager.resume_all()
+        started.append("async")
+        logger.info("[StartAll] 异步Checker已启动" + ("" if in_range else "（不在时间段内，等待时间段）"))
+
+    await CheckerManager.ws_broadcast_control("start")
+    return {
+        "message": f"已启动 {' + '.join(started)} Checker",
+        "started": started,
+        "within_time_range": in_range,
+    }
+
+
+@app.post("/api/stop-all")
+async def stop_all(req: BulkControlRequest = BulkControlRequest()):
+    """批量停止 Checker
+    - type="sync": 只停止同步 Checker
+    - type="async": 只停止异步 Checker
+    - 不设 type：同时停止两者
+    """
+    stopped = []
+
+    if req.type is None or req.type == "sync":
+        CheckerManager.pause_all()
+        stopped.append("sync")
+        logger.info("[StopAll] 同步Checker已停止")
+
+    if req.type is None or req.type == "async":
+        AsyncCheckerManager.pause_all()
+        stopped.append("async")
+        logger.info("[StopAll] 异步Checker已停止")
+
+    await CheckerManager.ws_broadcast_control("stop")
+    return {
+        "message": f"已停止 {' + '.join(stopped)} Checker",
+        "stopped": stopped,
+    }
 
 
 # ========== 配置 API ==========
