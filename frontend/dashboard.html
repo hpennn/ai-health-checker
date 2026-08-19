@@ -2062,7 +2062,19 @@
                         ]);
 
                         this.summary = statusRes.summary || {};
-                        this.projects = statusRes.projects || {};
+                        // 规范化项目字段：兼容 project_name / name、project_url / url，确保 visit_count 存在
+                        const rawProjects = statusRes.projects || {};
+                        const normalizedProjects = {};
+                        const cfgVisitCounts = (this.config && this.config.project_visit_counts) || {};
+                        for (const key in rawProjects) {
+                            const p = { ...rawProjects[key] };
+                            p.name = p.name || p.project_name || key;
+                            p.url = p.url || p.project_url || '';
+                            p.category = p.category || '-';
+                            p.visit_count = p.visit_count || cfgVisitCounts[key] || this.config.default_visit_count || 5;
+                            normalizedProjects[key] = p;
+                        }
+                        this.projects = normalizedProjects;
                         this.withinTimeRange = statusRes.within_time_range !== false;
                         this.inspectionStats = statusRes.inspection_stats || this.inspectionStats;
                         this.checkerWorkload = statusRes.checker_workload || {};
