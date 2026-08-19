@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import httpx
+from urllib.parse import urljoin, urlparse
 
 from deep_inspector import DeepInspector
 from config import (
@@ -125,6 +126,122 @@ class Checker:
         if referer_url:
             headers["Referer"] = referer_url
         return headers
+
+    def _extract_internal_links(self, html: str, base_url: str) -> list[str]:
+        """增强版内链提取 - 支持 SPA navigateTo / switchTab / hash 路由 / <a href> / pushState
+
+        提取策略（优先级与覆盖度）：
+        1. <a href="..."> 标签中的同域链接
+        2. onclick / 内联脚本中的 navigateTo('path') 模式
+        3. onclick / 内联脚本中的 switchTab('path') 模式（微信小程序风格 SPA）
+        4. hash 路由 /#path 或 href="/#path"
+        5. <script> 中的 pushState / replaceState 路径
+        6. window.location = '/path' 赋值
+
+        所有链接去重，排除首页自身（path='/' 或空）。
+        """
+        base_parsed = urlparse(base_url)
+        base_netloc = base_parsed.netloc
+        base_path = base_parsed.path.rstrip("/") or "/"
+
+        raw_links = set()
+
+        # --- 1. <a href> 标签 ---
+        for m in re.finditer(r'<a[^>]+href=["\']([^"\']+)["\']', html, re.I):
+            href = m.group(1).strip()
+            if not href or href.startswith("javascript:") \
+                    or href.startswith("mailto:") or href.startswith("tel:") \
+                    or href.startswith("data:"):
+                continue
+            full_url = urljoin(base_url, href)
+            parsed = urlparse(full_url)
+            if parsed.netloc == base_netloc and parsed.scheme in ("http", "https"):
+                raw_links.add(full_url)
+
+        # --- 2. navigateTo('path') 模式（SPA 常见） ---
+        # 匹配单引号或双引号包裹的路径，支持相对路径与绝对路径
+        for m in re.finditer(r"navigateTo\s*\(\s*['\"]([^'\"]+)['\"]", html):
+            path = m.group(1).strip()
+            if not path or path.startswith("http"):
+                continue
+            # 如果 path 已经以 / 开头，直接拼接；否则视为相对路径
+            if not path.startswith("/"):
+                path = "/" + path
+            full_url = urljoin(base_url, path)
+            parsed = urlparse(full_url)
+            if parsed.netloc == base_netloc and parsed.scheme in ("http", "https"):
+                raw_links.add(full_url)
+
+        # --- 3. switchTab('path') 模式（微信小程序/H5 风格 SPA） ---
+        for m in re.finditer(r"switchTab\s*\(\s*['\"]([^'\"]+)['\"]", html):
+            path = m.group(1).strip()
+            if not path or path.startswith("http"):
+                continue
+            if not path.startswith("/"):
+                path = "/" + path
+            full_url = urljoin(base_url, path)
+            parsed = urlparse(full_url)
+            if parsed.netloc == base_netloc and parsed.scheme in ("http", "https"):
+                raw_links.add(full_url)
+
+        # --- 4. hash 路由 /#path 或 href="/#path" ---
+        # 匹配 href 中的 hash 路由
+        for m in re.finditer(r'<a[^>]+href=["\'](/#?[^"\']+)["\']', html, re.I):
+            href = m.group(1).strip()
+            # href 以 / 开头，可能是 /#path 或 /path
+            full_url = urljoin(base_url, href)
+            parsed = urlparse(full_url)
+            if parsed.netloc == base_netloc and parsed.scheme in ("http", "https"):
+                raw_links.add(full_url)
+
+        # 匹配内联脚本中的 hash 路由跳转，如 location.hash = '#path'
+        for m in re.finditer(r"location\.hash\s*=\s*['\"]#?([^'\"]+)['\"]", html):
+            hash_val = m.group(1).strip()
+            if hash_val:
+                full_url = base_url.rstrip("/") + "/#" + hash_val
+                raw_links.add(full_url)
+
+        # --- 5. pushState / replaceState 中的路径 ---
+        for m in re.finditer(r"(?:pushState|replaceState)\s*\([^,]+,[^,]+,\s*['\"]([^'\"]+)['\"]", html):
+            path = m.group(1).strip()
+            if not path or path.startswith("http"):
+                continue
+            full_url = urljoin(base_url, path)
+            parsed = urlparse(full_url)
+            if parsed.netloc == base_netloc and parsed.scheme in ("http", "https"):
+                raw_links.add(full_url)
+
+        # --- 6. window.location / location.href 赋值 ---
+        for m in re.finditer(r"(?:window\.)?(?:location|location\.href)\s*=\s*['\"]([^'\"]+)['\"]", html):
+            path = m.group(1).strip()
+            if not path or path.startswith("http") or path.startswith("#"):
+                continue
+            full_url = urljoin(base_url, path)
+            parsed = urlparse(full_url)
+            if parsed.netloc == base_netloc and parsed.scheme in ("http", "https"):
+                raw_links.add(full_url)
+
+        # --- 去重 & 排除首页自身 ---
+        result = []
+        for link in raw_links:
+            # 标准化：修复裸 hash（domain#hash -> domain/#hash）
+            # urljoin 对 "#hash" 格式的 href 可能产生 base#hash（缺少 /）
+            parsed = urlparse(link)
+            if not parsed.path and parsed.fragment:
+                link = link.replace("#", "/#", 1)
+                parsed = urlparse(link)
+
+            clean_path = parsed.path.rstrip("/") or "/"
+            # 排除首页自身（path=/ 且无 hash）
+            if clean_path == "/" and not parsed.fragment:
+                continue
+            # 排除和 base_url 完全相同的链接
+            if link.rstrip("/") == base_url.rstrip("/"):
+                continue
+            if link not in result:
+                result.append(link)
+
+        return result
 
     async def _check_ssl(self, url: str) -> dict:
         """检查 SSL 证书状态（仅 HTTPS）"""
@@ -354,16 +471,31 @@ class Checker:
 
                 html = resp.text
 
-            # 2. 提取内链
-            from deep_inspector import DeepInspector
-            internal_links = DeepInspector._extract_internal_links(html, url)
+            # 2. 提取内链（使用增强版提取方法，支持 SPA navigateTo / switchTab / hash 路由等）
+            internal_links = self._extract_internal_links(html, url)
+
+            # 3. 如果提取不足 3 个，从 config 的 sub_paths 补充
+            if len(internal_links) < 3:
+                sub_paths = project.get("sub_paths", [])
+                if sub_paths:
+                    config_links = []
+                    for sp in sub_paths:
+                        full_url = urljoin(url, sp)
+                        parsed = urlparse(full_url)
+                        # 排除首页自身
+                        clean_path = parsed.path.rstrip("/") or "/"
+                        if clean_path == "/" and not parsed.fragment:
+                            continue
+                        if full_url not in internal_links and full_url not in config_links:
+                            config_links.append(full_url)
+                    internal_links.extend(config_links)
 
             if not internal_links:
                 result["all_ok"] = True  # 没有内链也算正常
                 self.current_task = "空闲"
                 return result
 
-            # 3. 随机选 3-5 个内页
+            # 4. 随机选 3-5 个内页
             num_pages = min(random.randint(3, 5), len(internal_links))
             sampled_links = random.sample(internal_links, num_pages)
 
