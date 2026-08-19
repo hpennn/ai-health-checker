@@ -11,19 +11,23 @@ PROJECTS = [
     # === zhinenti.cn 系列 ===
     {
         "name": "智能工作台", "url": "https://www.zhinenti.cn", "category": "AI工具", "visit_count": 5,
-        "sub_paths": ["/", "/home", "/profile", "/agents", "/tasks"],
+        "sub_paths": [],  # SPA 站点，客户端路由，HTTP 访问子路径返回 404
+        "is_spa": True,
     },
     {
         "name": "部署助手", "url": "https://deploy.zhinenti.cn", "category": "AI工具", "visit_count": 5,
-        "sub_paths": ["/", "/home", "/deploy", "/fix", "/agent", "/profile", "/server", "/orders"],
+        "sub_paths": [],  # SPA 站点，客户端路由，HTTP 访问子路径返回 404
+        "is_spa": True,
     },
     {
         "name": "营销助手", "url": "https://craft.zhinenti.cn", "category": "AI工具", "visit_count": 5,
-        "sub_paths": ["/", "/home", "/marketing", "/profile", "/agents", "/tasks"],
+        "sub_paths": [],  # SPA 站点，客户端路由，HTTP 访问子路径返回 404
+        "is_spa": True,
     },
     {
         "name": "智能部署", "url": "https://auto.zhinenti.cn", "category": "AI工具", "visit_count": 5,
-        "sub_paths": ["/", "/deploy", "/agent", "/profile", "/server"],
+        "sub_paths": [],  # SPA 站点，客户端路由，HTTP 访问子路径返回 404
+        "is_spa": True,
     },
     # === zhinenti.vip / xyz ===
     {
@@ -105,7 +109,8 @@ PROJECTS = [
     # === IP直连（不推送IndexNow） ===
     {
         "name": "AI客服管理", "url": "http://47.113.216.237:8600", "category": "AI工具", "visit_count": 5,
-        "sub_paths": ["/", "/login"],
+        "sub_paths": [],  # SPA 站点，客户端路由，HTTP 访问子路径返回 404
+        "is_spa": True,
     },
 ]
 
@@ -666,3 +671,4 @@ def re_match_time(s: str) -> bool:
     """简单的 HH:MM 格式校验"""
     import re
     return bool(re.match(r'^\d{2}:\d{2}$', s))
+
