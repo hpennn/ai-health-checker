@@ -1163,8 +1163,10 @@ class CheckerManager:
             workload[checker.id] = {
                 "name": checker.name,
                 "check_count": checker.check_count,
+                "visit_count": checker.visit_count,
                 "project_count": len(checker.projects),
                 "running": checker.running and not checker.paused,
+                "current_task": checker.current_task,
             }
         return workload
 
