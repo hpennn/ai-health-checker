@@ -1080,18 +1080,18 @@
                                 <div class="flex justify-between text-[11px]">
                                     <span class="text-gray-500">状态</span>
                                     <span :class="agent.running && !agent.paused ? 'text-green-400' : agent.paused ? 'text-yellow-400' : 'text-gray-500'"
-                                          x-text="agent.running && !agent.paused ? '运行中' : agent.paused ? '已暂停' : '已停止'"></span>
+                                          x-text="agent.role === 'visitor' ? (agent.running && !agent.paused ? (agent.current_task && agent.current_task !== '空闲' ? '访问中' : '等待下次访问') : agent.paused ? '已暂停' : '已停止') : (agent.running && !agent.paused ? '运行中' : agent.paused ? '已暂停' : '已停止')"></span>
                                 </div>
                                 <div class="flex justify-between text-[11px]">
-                                    <span class="text-gray-500">检测次数</span>
-                                    <span class="text-gray-300" x-text="agent.check_count"></span>
+                                    <span class="text-gray-500" x-text="agent.role === 'visitor' ? '访问次数' : '检测次数'"></span>
+                                    <span class="text-gray-300" x-text="agent.role === 'visitor' ? (agent.visit_count || 0) : agent.check_count"></span>
                                 </div>
                                 <div class="flex justify-between text-[11px]">
                                     <span class="text-gray-500">项目数</span>
                                     <span class="text-gray-300" x-text="agent.project_count"></span>
                                 </div>
-                                <div class="text-[10px] text-gray-500 truncate" :title="agent.current_task">
-                                    <span class="text-indigo-400">▸</span> <span x-text="agent.current_task"></span>
+                                <div class="text-[10px] text-gray-500 truncate" :title="agent.role === 'visitor' && agent.current_task && agent.current_task !== '空闲' ? '访问中: ' + agent.current_task : agent.current_task">
+                                    <span class="text-indigo-400">▸</span> <span x-text="agent.role === 'visitor' && agent.current_task && agent.current_task !== '空闲' ? '访问中: ' + agent.current_task : agent.current_task"></span>
                                 </div>
                             </div>
                         </div>
