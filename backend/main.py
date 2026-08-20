@@ -695,6 +695,43 @@ async def get_async_checkers():
     }
 
 
+# ========== 本地 Visitor 客户端 API ==========
+class LocalVisitResult(BaseModel):
+    """本地 Visitor 客户端上报的访问结果"""
+    client_id: str = Field(..., description="客户端唯一标识")
+    project_name: str = Field(..., description="访问的项目名称")
+    project_url: str = Field(..., description="项目 URL")
+    success: bool = Field(..., description="访问是否成功")
+    pages_visited: int = Field(default=0, ge=0, description="访问的页面数")
+    duration_seconds: float = Field(default=0, ge=0, description="总停留时间（秒）")
+    user_agent: str = Field(default="", description="使用的 User-Agent")
+    device_type: str = Field(default="desktop", description="设备类型 desktop/mobile/tablet")
+    error: str | None = Field(default=None, description="错误信息（如果失败）")
+    timestamp: str = Field(default="", description="访问时间 ISO 格式")
+    extra: dict | None = Field(default=None, description="额外信息")
+
+
+@app.post("/api/local-visit-result")
+async def save_local_visit_result(result: LocalVisitResult):
+    """接收本地 Visitor 客户端的访问结果"""
+    result_dict = result.model_dump()
+    # 如果客户端没传时间，用服务器时间
+    if not result_dict.get("timestamp"):
+        result_dict["timestamp"] = datetime.utcnow().isoformat() + "Z"
+
+    await CheckerManager.save_local_visit_result(result_dict)
+    logger.info(f"[LocalVisitor] 收到 {result.client_id} 上报: {result.project_name} "
+                f"({'成功' if result.success else '失败'}, {result.pages_visited}页)")
+    return {"message": "已记录", "received": result_dict}
+
+
+@app.get("/api/local-visit-stats")
+async def get_local_visit_stats():
+    """获取本地 Visitor 的统计信息"""
+    stats = CheckerManager.get_local_visit_stats()
+    return stats
+
+
 # ========== IndexNow API ==========
 @app.get("/api/indexnow/verify")
 async def indexnow_verify():

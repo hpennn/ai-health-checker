@@ -790,6 +790,8 @@ class CheckerManager:
     _async_latest: dict[str, dict] = {}  # 异步Checker最新结果
     _visit_results: dict[str, list[dict]] = {}  # 模拟访问记录 project_name -> [history]
     _visit_latest: dict[str, dict] = {}  # 每个项目最新的模拟访问结果
+    _local_visit_results: list[dict] = []  # 本地 Visitor 客户端上报的访问结果
+    _local_visit_max = 500  # 本地访问结果最大保留条数
     _lock = asyncio.Lock()
     _initialized = False
     _ws_clients: list = []  # WebSocket 客户端列表
@@ -957,6 +959,95 @@ class CheckerManager:
             "info" if result.get("all_ok") else "warning",
             f"[访问] #{result.get('checker_id', '?')} {project_name}: {status_str} ({result.get('visited_pages', 0)}页)"
         )
+
+    @classmethod
+    async def save_local_visit_result(cls, result: dict):
+        """保存本地 Visitor 客户端上报的访问结果"""
+        project_name = result.get("project_name", "unknown")
+        async with cls._lock:
+            cls._local_visit_results.append(result)
+            if len(cls._local_visit_results) > cls._local_visit_max:
+                cls._local_visit_results = cls._local_visit_results[-cls._local_visit_max:]
+
+        # WebSocket 推送
+        await cls._ws_broadcast({
+            "type": "local_visit_update",
+            "result": result,
+        })
+        # 记录实时日志
+        status_str = "成功" if result.get("success") else "失败"
+        client_id = result.get("client_id", "unknown")
+        cls._add_log(
+            "info" if result.get("success") else "warning",
+            f"[本地访问] {client_id} → {project_name}: {status_str} ({result.get('pages_visited', 0)}页)"
+        )
+
+    @classmethod
+    def get_local_visit_stats(cls) -> dict:
+        """获取本地 Visitor 的统计信息"""
+        results = cls._local_visit_results
+        total = len(results)
+        success = sum(1 for r in results if r.get("success"))
+        failed = total - success
+
+        # 按项目统计
+        by_project: dict[str, dict] = {}
+        for r in results:
+            pname = r.get("project_name", "unknown")
+            if pname not in by_project:
+                by_project[pname] = {"total": 0, "success": 0, "failed": 0}
+            by_project[pname]["total"] += 1
+            if r.get("success"):
+                by_project[pname]["success"] += 1
+            else:
+                by_project[pname]["failed"] += 1
+
+        # 按客户端统计
+        by_client: dict[str, dict] = {}
+        for r in results:
+            cid = r.get("client_id", "unknown")
+            if cid not in by_client:
+                by_client[cid] = {
+                    "total": 0,
+                    "success": 0,
+                    "failed": 0,
+                    "last_seen": None,
+                }
+            by_client[cid]["total"] += 1
+            if r.get("success"):
+                by_client[cid]["success"] += 1
+            else:
+                by_client[cid]["failed"] += 1
+            ts = r.get("timestamp")
+            if ts and (by_client[cid]["last_seen"] is None or ts > by_client[cid]["last_seen"]):
+                by_client[cid]["last_seen"] = ts
+
+        # 最近 24 小时访问量
+        now = datetime.now(timezone.utc)
+        from datetime import timedelta
+        last_24h_count = 0
+        for r in results:
+            try:
+                ts_str = r.get("timestamp", "")
+                if ts_str:
+                    ts = datetime.fromisoformat(ts_str)
+                    if (now - ts) < timedelta(hours=24):
+                        last_24h_count += 1
+            except (ValueError, TypeError):
+                pass
+
+        return {
+            "total_visits": total,
+            "success": success,
+            "failed": failed,
+            "success_rate": round(success / total * 100, 1) if total > 0 else 0,
+            "last_24h_visits": last_24h_count,
+            "unique_clients": len(by_client),
+            "unique_projects": len(by_project),
+            "by_project": by_project,
+            "by_client": by_client,
+            "recent_results": results[-20:],
+        }
 
     @classmethod
     def get_visit_latest(cls, project_name: str) -> dict | None:

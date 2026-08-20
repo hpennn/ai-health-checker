@@ -322,10 +322,6 @@ def get_video_by_name(name: str) -> dict | None:
     return None
 
 
-
-
-PROJECT_VISIT_COUNTS = {p["name"]: p.get("visit_count", 5) for p in PROJECTS}
-
 def assign_projects_to_checkers():
     """分配项目给 Checker
     - Checker id=1 (主Checker): 负责所有项目的完整健康检查
@@ -620,6 +616,11 @@ class RuntimeConfig:
                     if valid_kws:
                         self.project_search_keywords[pname] = valid_kws
 
+        # ===== 确保 PROJECTS 中的每个项目在 project_visit_counts 中都有对应条目 =====
+        # 如果 project_visit_counts 为空或缺少项目，从 PROJECTS 的 visit_count 初始化
+        # 这样新加的项目会自动获得默认值，前端显示的值与实际使用保持一致
+        self._ensure_project_visit_counts()
+
     def to_dict(self) -> dict:
         return {
             "inspection_enabled": self.inspection_enabled,
@@ -676,6 +677,16 @@ class RuntimeConfig:
     def get_project_visit_count(self, project_name: str) -> int:
         """获取项目的模拟访问次数权重"""
         return self.project_visit_counts.get(project_name, self.default_visit_count)
+
+    def _ensure_project_visit_counts(self):
+        """确保 PROJECTS 中的每个项目在 project_visit_counts 中都有对应条目
+        - 以 PROJECTS 列表中的 visit_count 作为初始默认值
+        - 已存在的项目保留当前值（已持久化的配置优先）
+        - 不存在的项目从 PROJECTS 初始化
+        """
+        for p in PROJECTS:
+            if p["name"] not in self.project_visit_counts:
+                self.project_visit_counts[p["name"]] = p.get("visit_count", self.default_visit_count)
 
     def set_project_visit_count(self, project_name: str, count: int):
         """设置项目的模拟访问次数权重"""
