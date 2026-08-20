@@ -961,473 +961,395 @@
 
             <!-- Tab 3: 项目配置 -->
             <div x-show="activeTab === 'config'" x-transition:enter="fade-in">
-                                <!-- 子 Tab 切换 -->
-                <div class="flex gap-1 mb-4 border-b border-gray-700/30 pb-1 flex-wrap">
-                    <button @click="configSubTab = 'projects'"
-                            :class="configSubTab === 'projects' ? 'config-subtab-btn active' : 'text-gray-400 hover:text-gray-200'"
-                            class="px-3 py-1.5 rounded-lg text-sm transition">
-                        📋 项目配置
-                    </button>
-                    <button @click="configSubTab = 'global'"
-                            :class="configSubTab === 'global' ? 'config-subtab-btn active' : 'text-gray-400 hover:text-gray-200'"
-                            class="px-3 py-1.5 rounded-lg text-sm transition">
-                        ⚙ 全局配置
-                    </button>
-                    <button @click="configSubTab = 'async'"
-                            :class="configSubTab === 'async' ? 'config-subtab-btn active' : 'text-gray-400 hover:text-gray-200'"
-                            class="px-3 py-1.5 rounded-lg text-sm transition">
-                        🔍 异步Checker / 搜索词
-                    </button>
-                    <button @click="configSubTab = 'seo'"
-                            :class="configSubTab === 'seo' ? 'config-subtab-btn active' : 'text-gray-400 hover:text-gray-200'"
-                            class="px-3 py-1.5 rounded-lg text-sm transition">
-                        🚀 SEO推送
-                    </button>
-                </div>
-
-                <!-- 项目配置表格 -->
-                <div x-show="configSubTab === 'projects'" class="space-y-4">
-                    <div class="glass rounded-xl p-4 border border-gray-700/30">
-                        <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
-                            <h3 class="text-sm font-semibold text-gray-200 flex items-center gap-2">
-                                <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+                <!-- 统一配置布局：全局设置 + 项目列表 + 保存按钮 -->
+                <!-- 全局设置区 -->
+                <div class="glass rounded-xl p-4 border border-gray-700/30 mb-4">
+                    <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
+                        <h3 class="text-sm font-semibold text-gray-200 flex items-center gap-2">
+                            <svg class="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                            </svg>
+                            全局设置
+                        </h3>
+                        <div class="flex items-center gap-2">
+                            <button @click="resetConfig()" class="px-3 py-1.5 rounded-lg bg-gray-700/50 hover:bg-gray-600/50 text-gray-400 hover:text-gray-300 text-xs transition flex items-center gap-1">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
                                 </svg>
-                                项目访问配置
-                            </h3>
-                            <div class="flex items-center gap-2">
-                                <span class="text-xs text-gray-500">共 <span class="text-indigo-300" x-text="projectList.length"></span> 个项目</span>
-                            </div>
-                        </div>
-                        <div class="overflow-x-auto">
-                            <table class="w-full text-sm">
-                                <thead class="bg-gray-800/50">
-                                    <tr>
-                                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-400">项目名称</th>
-                                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-400 hide-on-mobile">URL</th>
-                                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-400 hide-on-mobile">分类</th>
-                                        <th class="px-3 py-2 text-center text-xs font-medium text-gray-400 w-36">访问次数</th>
-                                        <th class="px-3 py-2 text-center text-xs font-medium text-gray-400 w-24">操作</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-gray-700/20">
-                                    <template x-for="project in projectList" :key="project.name">
-                                        <tr class="hover:bg-gray-700/20 transition">
-                                            <td class="px-3 py-2.5">
-                                                <div class="flex items-center gap-2">
-                                                    <div class="w-2 h-2 rounded-full flex-shrink-0"
-                                                         :class="{{
-                                                             'bg-green-500': project.status === 'online',
-                                                             'bg-red-500': project.status === 'offline',
-                                                             'bg-yellow-500': project.status === 'slow',
-                                                             'bg-gray-500': !project.status || project.status === 'pending'
-                                                         }}"></div>
-                                                    <span class="text-gray-200 font-medium text-sm truncate" x-text="project.name"></span>
-                                                </div>
-                                            </td>
-                                            <td class="px-3 py-2.5 text-gray-400 text-xs hide-on-mobile truncate max-w-[200px]" :title="project.url" x-text="project.url"></td>
-                                            <td class="px-3 py-2.5 hide-on-mobile">
-                                                <span class="text-xs px-2 py-0.5 rounded-full"
-                                                      :class="project.category === 'AI工具' ? 'bg-purple-500/20 text-purple-300' : 'bg-indigo-500/20 text-indigo-300'"
-                                                      x-text="project.category || '-'></span>
-                                            </td>
-                                            <td class="px-3 py-2.5">
-                                                <div class="flex items-center justify-center gap-1">
-                                                    <button @click="decreaseVisitCount(project.name)"
-                                                            class="w-7 h-7 rounded-lg bg-gray-700/50 hover:bg-gray-600/50 text-gray-400 hover:text-gray-200 text-sm font-bold transition">−</button>
-                                                    <input type="number"
-                                                           :value="project.visit_count || 5"
-                                                           @input="setVisitCountInput(project.name, $event.target.value)"
-                                                           class="w-14 h-7 text-center config-input rounded-lg text-sm"
-                                                           min="1" max="100">
-                                                    <button @click="increaseVisitCount(project.name)"
-                                                            class="w-7 h-7 rounded-lg bg-gray-700/50 hover:bg-gray-600/50 text-gray-400 hover:text-gray-200 text-sm font-bold transition">+</button>
-                                                </div>
-                                            </td>
-                                            <td class="px-3 py-2.5 text-center">
-                                                <button @click="saveVisitCount(project.name)"
-                                                        class="px-3 py-1 rounded-lg text-xs bg-indigo-500/80 hover:bg-indigo-500 text-white transition">
-                                                    保存
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    </template>
-                                </tbody>
-                            </table>
-                        </div>
-                        <div x-show="projectList.length === 0" class="text-center py-8 text-gray-500 text-sm">
-                            暂无项目数据
+                                恢复默认
+                            </button>
+                            <button @click="saveConfig()"
+                                    :disabled="savingConfig"
+                                    class="px-4 py-2 rounded-lg bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 disabled:opacity-50 text-white text-sm font-medium transition flex items-center gap-2">
+                                <svg x-show="savingConfig" class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                                </svg>
+                                <span x-text="savingConfig ? '保存中...' : '保存全部配置'"></span>
+                            </button>
                         </div>
                     </div>
-                </div>
 
-                <!-- 全局配置 -->
-                <div x-show="configSubTab === 'global'" class="space-y-4">
-                    <div class="glass rounded-xl p-4 border border-gray-700/30">
-                        <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
-                            <h3 class="text-sm font-semibold text-gray-200 flex items-center gap-2">
-                                <svg class="w-4 h-4 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-                                </svg>
-                                全局巡检配置
-                            </h3>
-                            <div class="flex items-center gap-2">
-                                <button @click="resetConfig()" class="px-3 py-1.5 rounded-lg bg-gray-700/50 hover:bg-gray-600/50 text-gray-400 hover:text-gray-300 text-xs transition flex items-center gap-1">
-                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                                    </svg>
-                                    恢复默认
-                                </button>
-                                <button @click="saveConfig()"
-                                        :disabled="savingConfig"
-                                        class="px-4 py-2 rounded-lg bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 disabled:opacity-50 text-white text-sm font-medium transition flex items-center gap-2">
-                                    <svg x-show="savingConfig" class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                                    </svg>
-                                    <span x-text="savingConfig ? '保存中...' : '保存配置'"></span>
+                    <!-- 巡检开关 + 时间段 + 间隔 + 默认访问次数 + Visitor间隔 -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                        <!-- 巡检开关与时间段 -->
+                        <div class="bg-gray-800/30 rounded-xl p-4">
+                            <div class="flex items-center justify-between mb-3">
+                                <label class="text-sm text-gray-400">巡检总开关</label>
+                                <button @click="config.inspection_enabled = !config.inspection_enabled"
+                                        :class="config.inspection_enabled ? 'switch-btn running' : 'switch-btn stopped'"
+                                        class="relative w-12 h-6 rounded-full transition">
+                                    <span :class="config.inspection_enabled ? 'translate-x-6' : 'translate-x-1'"
+                                          class="absolute top-1 w-4 h-4 bg-white rounded-full transition-transform"></span>
                                 </button>
                             </div>
-                        </div>
-
-                        <!-- 巡检时间段 -->
-                        <div class="bg-gray-800/30 rounded-xl p-4 mb-4">
-                            <label class="text-sm text-gray-400 block mb-3">巡检时间段</label>
-                            <div class="flex flex-wrap gap-2 mb-3">
+                            <label class="text-sm text-gray-400 block mb-2">巡检时间段</label>
+                            <div class="flex flex-wrap gap-1 mb-2">
                                 <button @click="setTimePreset('allday')"
                                         :class="isTimePreset('allday') ? 'bg-indigo-500/30 text-indigo-300 border-indigo-500/40' : 'bg-gray-700/30 text-gray-400 border-gray-600/30 hover:bg-gray-700/50'"
-                                        class="px-3 py-1 rounded-lg text-xs border transition">
+                                        class="px-2 py-0.5 rounded text-xs border transition">
                                     全天
                                 </button>
                                 <button @click="setTimePreset('work')"
                                         :class="isTimePreset('work') ? 'bg-indigo-500/30 text-indigo-300 border-indigo-500/40' : 'bg-gray-700/30 text-gray-400 border-gray-600/30 hover:bg-gray-700/50'"
-                                        class="px-3 py-1 rounded-lg text-xs border transition">
-                                    工作时间
+                                        class="px-2 py-0.5 rounded text-xs border transition">
+                                    工作
                                 </button>
                                 <button @click="setTimePreset('night')"
                                         :class="isTimePreset('night') ? 'bg-indigo-500/30 text-indigo-300 border-indigo-500/40' : 'bg-gray-700/30 text-gray-400 border-gray-600/30 hover:bg-gray-700/50'"
-                                        class="px-3 py-1 rounded-lg text-xs border transition">
+                                        class="px-2 py-0.5 rounded text-xs border transition">
                                     夜间
                                 </button>
                                 <button @click="setTimePreset('peak')"
                                         :class="isTimePreset('peak') ? 'bg-indigo-500/30 text-indigo-300 border-indigo-500/40' : 'bg-gray-700/30 text-gray-400 border-gray-600/30 hover:bg-gray-700/50'"
-                                        class="px-3 py-1 rounded-lg text-xs border transition">
-                                    高峰时段
+                                        class="px-2 py-0.5 rounded text-xs border transition">
+                                    高峰
                                 </button>
                             </div>
-                            <div class="grid grid-cols-2 gap-4">
+                            <div class="grid grid-cols-2 gap-2">
                                 <div>
                                     <label class="text-xs text-gray-500 block mb-1">开始时间</label>
                                     <input type="time" x-model="config.time_range.start"
-                                           class="config-input w-full px-3 py-2 rounded-lg text-sm">
+                                           class="config-input w-full px-2 py-1.5 rounded-lg text-xs">
                                 </div>
                                 <div>
                                     <label class="text-xs text-gray-500 block mb-1">结束时间</label>
                                     <input type="time" x-model="config.time_range.end"
-                                           class="config-input w-full px-3 py-2 rounded-lg text-sm">
+                                           class="config-input w-full px-2 py-1.5 rounded-lg text-xs">
                                 </div>
                             </div>
                         </div>
 
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                            <!-- 间隔滑块 -->
-                            <div class="bg-gray-800/30 rounded-xl p-4">
-                                <label class="text-sm text-gray-400 block mb-3">
-                                    巡检间隔：<span class="text-indigo-300 font-medium" x-text="config.interval_min + ' ~ ' + config.interval_max"></span> 分钟
-                                </label>
-                                <div class="space-y-4">
-                                    <div>
-                                        <div class="flex justify-between text-xs text-gray-500 mb-1">
-                                            <span>最小间隔</span>
-                                            <span class="text-indigo-300" x-text="config.interval_min + ' 分钟'"></span>
-                                        </div>
-                                        <input type="range" x-model.number="config.interval_min" min="1" max="240" step="1" class="w-full">
-                                    </div>
-                                    <div>
-                                        <div class="flex justify-between text-xs text-gray-500 mb-1">
-                                            <span>最大间隔</span>
-                                            <span class="text-indigo-300" x-text="config.interval_max + ' 分钟'"></span>
-                                        </div>
-                                        <input type="range" x-model.number="config.interval_max" min="1" max="240" step="1" class="w-full">
-                                    </div>
-                                </div>
-                            </div>
-
-                            <!-- 轮数滑块 -->
-                            <div class="bg-gray-800/30 rounded-xl p-4">
-                                <label class="text-sm text-gray-400 block mb-3">
-                                    每轮检查次数：<span class="text-indigo-300 font-medium" x-text="config.rounds_min + ' ~ ' + config.rounds_max"></span> 次
-                                </label>
-                                <div class="space-y-4">
-                                    <div>
-                                        <div class="flex justify-between text-xs text-gray-500 mb-1">
-                                            <span>最少数</span>
-                                            <span class="text-indigo-300" x-text="config.rounds_min + ' 次'"></span>
-                                        </div>
-                                        <input type="range" x-model.number="config.rounds_min" min="1" max="10" step="1" class="w-full">
-                                    </div>
-                                    <div>
-                                        <div class="flex justify-between text-xs text-gray-500 mb-1">
-                                            <span>最多数</span>
-                                            <span class="text-indigo-300" x-text="config.rounds_max + ' 次'"></span>
-                                        </div>
-                                        <input type="range" x-model.number="config.rounds_max" min="1" max="10" step="1" class="w-full">
-                                    </div>
-                                </div>
-                                <div class="flex items-center gap-2 mt-3">
-                                    <span class="text-xs text-gray-500">轮内间隔:</span>
-                                    <input type="number" x-model.number="config.rounds_interval_seconds" min="1" max="60"
-                                           class="config-input w-20 px-2 py-1 rounded text-xs text-center">
-                                    <span class="text-xs text-gray-500">秒</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Visitor 间隔配置 -->
-                        <div class="bg-gray-800/30 rounded-xl p-4 mb-4">
+                        <!-- 巡检间隔 -->
+                        <div class="bg-gray-800/30 rounded-xl p-4">
                             <label class="text-sm text-gray-400 block mb-3">
-                                Visitor 访问间隔：<span class="text-cyan-300 font-medium" x-text="config.visitor_interval_min + ' ~ ' + config.visitor_interval_max"></span> 分钟
+                                巡检间隔：<span class="text-indigo-300 font-medium" x-text="config.interval_min + ' ~ ' + config.interval_max"></span> 分钟
                             </label>
-                            <div class="grid grid-cols-2 gap-4">
+                            <div class="space-y-3">
                                 <div>
                                     <div class="flex justify-between text-xs text-gray-500 mb-1">
                                         <span>最小间隔</span>
-                                        <span class="text-cyan-300" x-text="config.visitor_interval_min + ' 分钟'"></span>
+                                        <span class="text-indigo-300" x-text="config.interval_min + ' 分钟'"></span>
+                                    </div>
+                                    <input type="range" x-model.number="config.interval_min" min="1" max="240" step="1" class="w-full">
+                                </div>
+                                <div>
+                                    <div class="flex justify-between text-xs text-gray-500 mb-1">
+                                        <span>最大间隔</span>
+                                        <span class="text-indigo-300" x-text="config.interval_max + ' 分钟'"></span>
+                                    </div>
+                                    <input type="range" x-model.number="config.interval_max" min="1" max="240" step="1" class="w-full">
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 每轮检查次数 -->
+                        <div class="bg-gray-800/30 rounded-xl p-4">
+                            <label class="text-sm text-gray-400 block mb-3">
+                                每轮检查次数：<span class="text-indigo-300 font-medium" x-text="config.rounds_min + ' ~ ' + config.rounds_max"></span> 次
+                            </label>
+                            <div class="space-y-3">
+                                <div>
+                                    <div class="flex justify-between text-xs text-gray-500 mb-1">
+                                        <span>最少数</span>
+                                        <span class="text-indigo-300" x-text="config.rounds_min + ' 次'"></span>
+                                    </div>
+                                    <input type="range" x-model.number="config.rounds_min" min="1" max="10" step="1" class="w-full">
+                                </div>
+                                <div>
+                                    <div class="flex justify-between text-xs text-gray-500 mb-1">
+                                        <span>最多数</span>
+                                        <span class="text-indigo-300" x-text="config.rounds_max + ' 次'"></span>
+                                    </div>
+                                    <input type="range" x-model.number="config.rounds_max" min="1" max="10" step="1" class="w-full">
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2 mt-3">
+                                <span class="text-xs text-gray-500">轮内间隔:</span>
+                                <input type="number" x-model.number="config.rounds_interval_seconds" min="1" max="60"
+                                       class="config-input w-16 px-2 py-1 rounded text-xs text-center">
+                                <span class="text-xs text-gray-500">秒</span>
+                            </div>
+                        </div>
+
+                        <!-- Visitor 配置 -->
+                        <div class="bg-gray-800/30 rounded-xl p-4">
+                            <label class="text-sm text-gray-400 block mb-3">
+                                Visitor 访问间隔：<span class="text-cyan-300 font-medium" x-text="config.visitor_interval_min + ' ~ ' + config.visitor_interval_max"></span> 分钟
+                            </label>
+                            <div class="grid grid-cols-2 gap-3 mb-3">
+                                <div>
+                                    <div class="flex justify-between text-xs text-gray-500 mb-1">
+                                        <span>最小</span>
+                                        <span class="text-cyan-300" x-text="config.visitor_interval_min + ' 分'"></span>
                                     </div>
                                     <input type="range" x-model.number="config.visitor_interval_min" min="1" max="120" step="1" class="w-full">
                                 </div>
                                 <div>
                                     <div class="flex justify-between text-xs text-gray-500 mb-1">
-                                        <span>最大间隔</span>
-                                        <span class="text-cyan-300" x-text="config.visitor_interval_max + ' 分钟'"></span>
+                                        <span>最大</span>
+                                        <span class="text-cyan-300" x-text="config.visitor_interval_max + ' 分'"></span>
                                     </div>
                                     <input type="range" x-model.number="config.visitor_interval_max" min="1" max="120" step="1" class="w-full">
                                 </div>
                             </div>
+                            <div class="flex items-center gap-2">
+                                <span class="text-xs text-gray-500 flex-shrink-0">默认访问次数:</span>
+                                <input type="number" x-model.number="config.default_visit_count" min="1" max="100"
+                                       class="config-input w-16 px-2 py-1 rounded text-xs text-center">
+                                <span class="text-xs text-gray-500">次/项目</span>
+                            </div>
                         </div>
+                    </div>
 
-                        <!-- 每日总巡检进度 -->
+                    <!-- 异步Checker & 搜索引擎 & 每日总巡检 -->
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div class="bg-gray-800/30 rounded-xl p-4">
-                            <div class="flex items-center justify-between mb-3">
+                            <label class="text-sm text-gray-400 block mb-2">异步Checker数量</label>
+                            <div class="flex items-center gap-3">
+                                <input type="range" x-model.number="config.async_checker_count" min="0" max="10" step="1" class="flex-1">
+                                <span class="text-cyan-300 font-bold text-lg w-8 text-right" x-text="config.async_checker_count"></span>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-2">0=不启用，最多10个</p>
+                        </div>
+                        <div class="bg-gray-800/30 rounded-xl p-4">
+                            <label class="text-sm text-gray-400 block mb-2">搜索引擎</label>
+                            <select x-model="config.search_engine" class="config-input w-full px-3 py-1.5 rounded-lg text-sm">
+                                <option value="baidu">百度</option>
+                                <option value="bing">必应</option>
+                                <option value="google">Google</option>
+                            </select>
+                            <p class="text-xs text-gray-500 mt-2">搜索失败自动重试2次</p>
+                        </div>
+                        <div class="bg-gray-800/30 rounded-xl p-4">
+                            <div class="flex items-center justify-between mb-2">
                                 <label class="text-sm text-gray-400">每日总巡检次数</label>
                                 <span class="text-xs text-gray-500">（0=不限）</span>
                             </div>
-                            <div class="flex items-center gap-3 mb-3">
+                            <div class="flex items-center gap-2">
                                 <input type="number" x-model.number="config.total_inspections_min" min="0" max="100"
-                                       class="config-input w-24 px-3 py-2 rounded-lg text-sm text-center">
+                                       class="config-input w-20 px-2 py-1.5 rounded-lg text-sm text-center">
                                 <span class="text-gray-500">~</span>
                                 <input type="number" x-model.number="config.total_inspections_max" min="0" max="100"
-                                       class="config-input w-24 px-3 py-2 rounded-lg text-sm text-center">
+                                       class="config-input w-20 px-2 py-1.5 rounded-lg text-sm text-center">
                                 <span class="text-xs text-gray-500">次/天</span>
                             </div>
-                            <div x-show="inspectionStats.daily_limit > 0" class="mt-3">
+                            <div x-show="inspectionStats.daily_limit > 0" class="mt-2">
                                 <div class="flex justify-between text-xs mb-1">
                                     <span class="text-gray-400">今日进度</span>
                                     <span class="text-purple-400">
-                                        <span x-text="inspectionStats.today_count"></span> / <span x-text="inspectionStats.daily_limit"></span> 次
+                                        <span x-text="inspectionStats.today_count"></span> / <span x-text="inspectionStats.daily_limit"></span>
                                     </span>
                                 </div>
-                                <div class="w-full h-2 bg-gray-700/50 rounded-full overflow-hidden">
+                                <div class="w-full h-1.5 bg-gray-700/50 rounded-full overflow-hidden">
                                     <div class="h-full bg-gradient-to-r from-indigo-500 to-purple-500 rounded-full progress-bar-fill transition-all duration-500"
                                          :style="{{ width: Math.min(100, inspectionStats.today_count / inspectionStats.daily_limit * 100) + '%' }}"></div>
                                 </div>
-                                <p class="text-xs text-gray-500 mt-1">
-                                    剩余 <span class="text-green-400" x-text="inspectionStats.remaining"></span> 次
-                                </p>
-                            </div>
-                            <div x-show="inspectionStats.daily_limit === 0" class="text-xs text-gray-500">
-                                今日已巡检 <span class="text-indigo-300" x-text="inspectionStats.today_count"></span> 次（不限次数）
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- 异步Checker配置 -->
-                <div x-show="configSubTab === 'async'" class="space-y-4">
-                    <div class="glass rounded-xl p-4 border border-gray-700/30">
-                        <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
-                            <h3 class="text-sm font-semibold text-gray-200 flex items-center gap-2">
-                                🔍 异步 Checker / 搜索词配置
-                            </h3>
-                            <button @click="saveConfig()"
-                                    :disabled="savingConfig"
-                                    class="px-4 py-2 rounded-lg bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 disabled:opacity-50 text-white text-sm font-medium transition flex items-center gap-2">
-                                <span x-text="savingConfig ? '保存中...' : '保存配置'"></span>
+                <!-- 项目列表配置区 -->
+                <div class="glass rounded-xl p-4 border border-gray-700/30 mb-4">
+                    <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+                        <h3 class="text-sm font-semibold text-gray-200 flex items-center gap-2">
+                            <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+                            </svg>
+                            项目配置
+                        </h3>
+                        <div class="flex items-center gap-2">
+                            <span class="text-xs text-gray-500">共 <span class="text-indigo-300" x-text="projectList.length"></span> 个项目</span>
+                            <button @click="applyDefaultVisitCount()"
+                                    class="px-2 py-1 rounded-lg text-xs bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30 transition flex items-center gap-1">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                                </svg>
+                                全部使用默认值
                             </button>
                         </div>
+                    </div>
 
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-                            <div class="bg-gray-800/30 rounded-xl p-4">
-                                <label class="text-sm text-gray-400 block mb-2">异步Checker数量</label>
-                                <div class="flex items-center gap-3">
-                                    <input type="range" x-model.number="config.async_checker_count" min="0" max="10" step="1" class="flex-1">
-                                    <span class="text-cyan-300 font-bold text-lg w-8 text-right" x-text="config.async_checker_count"></span>
-                                </div>
-                                <p class="text-xs text-gray-500 mt-2">0=不启用，最多10个</p>
-                            </div>
-                            <div class="bg-gray-800/30 rounded-xl p-4">
-                                <label class="text-sm text-gray-400 block mb-2">搜索引擎</label>
-                                <select x-model="config.search_engine" class="config-input w-full px-3 py-2 rounded-lg text-sm">
-                                    <option value="baidu">百度</option>
-                                    <option value="bing">必应</option>
-                                    <option value="google">Google</option>
-                                </select>
-                                <p class="text-xs text-gray-500 mt-2">搜索失败自动重试2次</p>
-                            </div>
-                            <div class="bg-gray-800/30 rounded-xl p-4">
-                                <label class="text-sm text-gray-400 block mb-2">轮内间隔（秒）</label>
-                                <input type="number" x-model.number="config.rounds_interval_seconds" min="1" max="60"
-                                       class="config-input w-full px-3 py-2 rounded-lg text-sm">
-                                <p class="text-xs text-gray-500 mt-2">多次检查间的间隔</p>
-                            </div>
-                        </div>
-
-                        <!-- 搜索词预设模板 -->
-                        <div class="bg-gray-800/30 rounded-xl p-4">
-                            <div class="flex items-center justify-between mb-3">
-                                <h4 class="text-sm font-medium text-gray-300">搜索词快速预设</h4>
-                            </div>
-                            <div class="flex flex-wrap gap-2 mb-4">
-                                <button @click="applyKeywordPreset('brand')"
-                                        class="px-3 py-1.5 rounded-lg text-xs bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/30 transition">
-                                    品牌词模板
-                                </button>
-                                <button @click="applyKeywordPreset('longtail')"
-                                        class="px-3 py-1.5 rounded-lg text-xs bg-purple-500/20 text-purple-300 border border-purple-500/30 hover:bg-purple-500/30 transition">
-                                    长尾词模板
-                                </button>
-                                <button @click="applyKeywordPreset('product')"
-                                        class="px-3 py-1.5 rounded-lg text-xs bg-pink-500/20 text-pink-300 border border-pink-500/30 hover:bg-pink-500/30 transition">
-                                    产品功能模板
-                                </button>
-                            </div>
-
-                            <!-- 搜索词配置 -->
-                            <div class="border-t border-gray-700/30 pt-4">
-                                <div class="flex items-center justify-between mb-3">
-                                    <h5 class="text-sm font-medium text-gray-300">项目搜索关键词配置</h5>
-                                    <span class="text-xs text-gray-500">每个项目 1-3 个关键词</span>
-                                </div>
-                                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-80 overflow-y-auto pr-2">
-                                    <template x-for="(kws, pname) in config.project_search_keywords" :key="pname">
-                                        <div class="bg-gray-900/50 rounded-lg p-3 border border-gray-700/30">
-                                            <p class="text-xs font-medium text-indigo-300 mb-2" x-text="pname"></p>
-                                            <div class="space-y-1.5">
-                                                <template x-for="(kw, idx) in kws" :key="idx">
-                                                    <div class="flex gap-1">
-                                                        <input type="text" :value="kw"
-                                                               @input="updateKeyword(pname, idx, $event.target.value)"
-                                                               class="config-input flex-1 px-2 py-1 rounded text-xs"
-                                                               :placeholder="'关键词 ' + (idx + 1)">
-                                                        <button @click="removeKeyword(pname, idx)"
-                                                                x-show="kws.length > 1"
-                                                                class="w-6 h-6 rounded bg-red-500/20 hover:bg-red-500/30 text-red-400 text-xs flex items-center justify-center">
-                                                            ×
-                                                        </button>
-                                                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead class="bg-gray-800/50">
+                                <tr>
+                                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-400">项目名称</th>
+                                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-400 hide-on-mobile">URL</th>
+                                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-400 hide-on-mobile">分类</th>
+                                    <th class="px-3 py-2 text-center text-xs font-medium text-gray-400 w-28">访问次数</th>
+                                    <th class="px-3 py-2 text-left text-xs font-medium text-gray-400">搜索关键词</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-700/20">
+                                <template x-for="project in projectList" :key="project.name">
+                                    <tr class="hover:bg-gray-700/20 transition">
+                                        <td class="px-3 py-2.5">
+                                            <div class="flex items-center gap-2">
+                                                <div class="w-2 h-2 rounded-full flex-shrink-0"
+                                                     :class="{{
+                                                         'bg-green-500': project.status === 'online',
+                                                         'bg-red-500': project.status === 'offline',
+                                                         'bg-yellow-500': project.status === 'slow',
+                                                         'bg-gray-500': !project.status || project.status === 'pending'
+                                                     }}"></div>
+                                                <span class="text-gray-200 font-medium text-sm truncate" x-text="project.name"></span>
+                                            </div>
+                                        </td>
+                                        <td class="px-3 py-2.5 text-gray-400 text-xs hide-on-mobile truncate max-w-[200px]" :title="project.url" x-text="project.url"></td>
+                                        <td class="px-3 py-2.5 hide-on-mobile">
+                                            <span class="text-xs px-2 py-0.5 rounded-full"
+                                                  :class="project.category === 'AI工具' ? 'bg-purple-500/20 text-purple-300' : 'bg-indigo-500/20 text-indigo-300'"
+                                                  x-text="project.category || '-'></span>
+                                        </td>
+                                        <td class="px-3 py-2.5">
+                                            <div class="flex items-center justify-center gap-1">
+                                                <button @click="decreaseProjVisitCount(project.name)"
+                                                        class="w-6 h-6 rounded bg-gray-700/50 hover:bg-gray-600/50 text-gray-400 hover:text-gray-200 text-xs font-bold transition">−</button>
+                                                <input type="number"
+                                                       x-model.number="config.project_visit_counts[project.name]"
+                                                       @change="clampVisitCount(project.name)"
+                                                       class="w-12 h-6 text-center config-input rounded text-xs"
+                                                       min="1" max="100">
+                                                <button @click="increaseProjVisitCount(project.name)"
+                                                        class="w-6 h-6 rounded bg-gray-700/50 hover:bg-gray-600/50 text-gray-400 hover:text-gray-200 text-xs font-bold transition">+</button>
+                                            </div>
+                                        </td>
+                                        <td class="px-3 py-2.5">
+                                            <div class="flex flex-wrap gap-1 items-center">
+                                                <template x-for="(kw, idx) in (config.project_search_keywords[project.name] || [project.name])" :key="idx">
+                                                    <input type="text" :value="kw"
+                                                           @input="updateProjectKeyword(project.name, idx, $event.target.value)"
+                                                           class="config-input w-24 px-2 py-1 rounded text-xs"
+                                                           :placeholder="'关键词 ' + (idx + 1)">
                                                 </template>
-                                                <button @click="addKeyword(pname)"
-                                                        x-show="kws.length < 3"
-                                                        class="w-full py-1 text-xs text-indigo-400 hover:text-indigo-300 border border-dashed border-indigo-500/30 rounded hover:border-indigo-500/50 transition">
-                                                    + 添加关键词
+                                                <button @click="addProjectKeyword(project.name)"
+                                                        x-show="(config.project_search_keywords[project.name] || []).length < 3"
+                                                        class="w-6 h-6 rounded bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-400 text-xs flex items-center justify-center flex-shrink-0">
+                                                    +
+                                                </button>
+                                                <button @click="removeProjectKeyword(project.name, (config.project_search_keywords[project.name] || []).length - 1)"
+                                                        x-show="(config.project_search_keywords[project.name] || []).length > 1"
+                                                        class="w-6 h-6 rounded bg-red-500/20 hover:bg-red-500/30 text-red-400 text-xs flex items-center justify-center flex-shrink-0">
+                                                    ×
                                                 </button>
                                             </div>
-                                        </div>
-                                    </template>
-                                </div>
-                            </div>
-                        </div>
+                                        </td>
+                                    </tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div x-show="projectList.length === 0" class="text-center py-8 text-gray-500 text-sm">
+                        暂无项目数据
+                    </div>
+
+                    <!-- 底部保存按钮 -->
+                    <div class="flex items-center justify-end gap-3 mt-4 pt-4 border-t border-gray-700/30">
+                        <span class="text-xs text-gray-500">修改完成后点击保存，所有配置将一次性提交</span>
+                        <button @click="saveConfig()"
+                                :disabled="savingConfig"
+                                class="px-6 py-2 rounded-lg bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 disabled:opacity-50 text-white text-sm font-medium transition flex items-center gap-2">
+                            <svg x-show="savingConfig" class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                            </svg>
+                            <span x-text="savingConfig ? '保存中...' : '保存全部配置'"></span>
+                        </button>
                     </div>
                 </div>
 
-                <!-- SEO 推送配置 -->
-                <div x-show="configSubTab === 'seo'" class="space-y-4">
-                    <div class="glass rounded-xl p-4 border border-gray-700/30 space-y-4">
-                        <!-- IndexNow 状态卡片 -->
-                        <div class="glass rounded-xl p-4">
-                            <div class="flex items-center gap-3 mb-4">
-                                <div class="w-10 h-10 rounded-xl bg-purple-500/15 flex items-center justify-center">
-                                    <svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-                                    </svg>
-                                </div>
-                                <div>
-                                    <h3 class="text-base font-semibold text-white">IndexNow 推送状态</h3>
-                                    <p class="text-xs text-gray-500">自动向搜索引擎提交最新URL，提升收录效率</p>
-                                </div>
+                <!-- SEO 推送配置（保持独立展示） -->
+                <div class="glass rounded-xl p-4 border border-gray-700/30 space-y-4">
+                    <!-- IndexNow 状态卡片 -->
+                    <div class="glass rounded-xl p-4">
+                        <div class="flex items-center gap-3 mb-4">
+                            <div class="w-10 h-10 rounded-xl bg-purple-500/15 flex items-center justify-center">
+                                <svg class="w-5 h-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                                </svg>
                             </div>
-                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                <div class="bg-gray-800/40 rounded-xl p-3">
-                                    <div class="text-xs text-gray-500 mb-1">API Key</div>
-                                    <div class="text-sm font-mono text-purple-300" x-text="indexnowInfo ? (indexnowInfo.api_key ? indexnowInfo.api_key.slice(0, 8) + '...' : '未配置') : '加载中...'">加载中...</div>
-                                </div>
-                                <div class="bg-gray-800/40 rounded-xl p-3">
-                                    <div class="text-xs text-gray-500 mb-1">推送间隔</div>
-                                    <div class="text-sm text-white" x-text="indexnowInfo ? (indexnowInfo.interval_hours ? indexnowInfo.interval_hours + ' 小时' : '未设置') : '—'">—</div>
-                                </div>
-                                <div class="bg-gray-800/40 rounded-xl p-3">
-                                    <div class="text-xs text-gray-500 mb-1">上次推送</div>
-                                    <div class="text-sm text-white" x-text="indexnowInfo && indexnowInfo.last_push ? indexnowInfo.last_push : '暂无记录'">暂无记录</div>
-                                </div>
+                            <div>
+                                <h3 class="text-base font-semibold text-white">🚀 SEO 推送 · IndexNow</h3>
+                                <p class="text-xs text-gray-500">自动向搜索引擎提交最新URL，提升收录效率</p>
                             </div>
                         </div>
-
-                        <!-- 手动推送按钮 -->
-                        <div class="glass rounded-xl p-4">
-                            <div class="flex items-center justify-between gap-4 flex-wrap">
-                                <div>
-                                    <h3 class="text-base font-semibold text-white">手动触发推送</h3>
-                                    <p class="text-xs text-gray-500 mt-1">立即将所有项目URL推送到搜索引擎</p>
-                                </div>
-                                <button @click="triggerIndexNowPush()"
-                                        :disabled="indexnowPushing"
-                                        class="px-5 py-2.5 rounded-xl text-sm font-medium transition-all
-                                               bg-gradient-to-r from-purple-600 to-pink-600 text-white
-                                               hover:from-purple-500 hover:to-pink-500
-                                               disabled:opacity-50 disabled:cursor-not-allowed
-                                               shadow-lg shadow-purple-500/20">
-                                    <span x-show="!indexnowPushing">🚀 立即推送全部项目URL</span>
-                                    <span x-show="indexnowPushing">⏳ 推送中...</span>
-                                </button>
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div class="bg-gray-800/40 rounded-xl p-3">
+                                <div class="text-xs text-gray-500 mb-1">API Key</div>
+                                <div class="text-sm font-mono text-purple-300" x-text="indexnowInfo ? (indexnowInfo.api_key ? indexnowInfo.api_key.slice(0, 8) + '...' : '未配置') : '加载中...'">加载中...</div>
+                            </div>
+                            <div class="bg-gray-800/40 rounded-xl p-3">
+                                <div class="text-xs text-gray-500 mb-1">推送间隔</div>
+                                <div class="text-sm text-white" x-text="indexnowInfo ? (indexnowInfo.interval_hours ? indexnowInfo.interval_hours + ' 小时' : '未设置') : '—'">—</div>
+                            </div>
+                            <div class="bg-gray-800/40 rounded-xl p-3">
+                                <div class="text-xs text-gray-500 mb-1">上次推送</div>
+                                <div class="text-sm text-white" x-text="indexnowInfo && indexnowInfo.last_push ? indexnowInfo.last_push : '暂无记录'">暂无记录</div>
                             </div>
                         </div>
+                    </div>
 
-                        <!-- 推送历史列表 -->
-                        <div class="glass rounded-xl p-4">
-                            <div class="flex items-center justify-between mb-4">
-                                <h3 class="text-base font-semibold text-white">推送历史</h3>
-                                <span class="text-xs text-gray-500" x-text="indexnowHistory.length + ' 条记录'">0 条记录</span>
+                    <!-- 手动推送按钮 -->
+                    <div class="glass rounded-xl p-4">
+                        <div class="flex items-center justify-between gap-4 flex-wrap">
+                            <div>
+                                <h3 class="text-base font-semibold text-white">手动触发推送</h3>
+                                <p class="text-xs text-gray-500 mt-1">立即将所有项目URL推送到搜索引擎</p>
                             </div>
-                            <div x-show="indexnowHistory.length === 0" class="text-center py-6 text-gray-500 text-sm">
-                                暂无推送记录
-                            </div>
-                            <div x-show="indexnowHistory.length > 0" class="space-y-2 max-h-64 overflow-y-auto pr-1">
-                                <template x-for="record in indexnowHistory" :key="record.domain + record.time">
-                                    <div class="flex items-center justify-between bg-gray-800/30 rounded-xl px-4 py-3">
-                                        <div class="flex items-center gap-3 min-w-0">
-                                            <div class="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                                                 :class="record.status === 'success' ? 'bg-green-500/15' : 'bg-red-500/15'">
-                                                <svg x-show="record.status === 'success'" class="w-4 h-4 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                                                </svg>
-                                                <svg x-show="record.status !== 'success'" class="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                                                </svg>
-                                            </div>
-                                            <div class="min-w-0">
-                                                <div class="text-sm text-white truncate" x-text="record.domain">—</div>
-                                                <div class="text-xs text-gray-500" x-text="record.url_count + ' 个URL'">—</div>
-                                            </div>
-                                        </div>
-                                        <div class="text-right flex-shrink-0 ml-3">
-                                            <div class="text-xs font-medium"
-                                                 :class="record.status === 'success' ? 'text-green-400' : 'text-red-400'"
-                                                 x-text="record.status === 'success' ? '成功' : '失败'">—</div>
-                                            <div class="text-xs text-gray-600" x-text="record.time">—</div>
-                                        </div>
+                            <button @click="triggerIndexNowPush()"
+                                    :disabled="indexnowPushing"
+                                    class="px-5 py-2.5 rounded-xl text-sm font-medium transition-all
+                                           bg-gradient-to-r from-purple-600 to-pink-600 text-white
+                                           hover:from-purple-500 hover:to-pink-500
+                                           disabled:opacity-50 disabled:cursor-not-allowed
+                                           shadow-lg shadow-purple-500/20">
+                                <span x-show="!indexnowPushing">🚀 立即推送全部项目URL</span>
+                                <span x-show="indexnowPushing">⏳ 推送中...</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 推送历史列表 -->
+                    <div class="glass rounded-xl p-4">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-base font-semibold text-white">推送历史</h3>
+                            <span class="text-xs text-gray-500" x-text="indexnowHistory.length + ' 条记录'">0 条记录</span>
+                        </div>
+                        <div x-show="indexnowHistory.length === 0" class="text-center py-6 text-gray-500 text-sm">
+                            暂无推送记录
+                        </div>
+                        <div x-show="indexnowHistory.length > 0" class="space-y-2 max-h-48 overflow-y-auto">
+                            <template x-for="(record, idx) in indexnowHistory.slice(0, 10)" :key="idx">
+                                <div class="flex items-center justify-between bg-gray-800/30 rounded-lg px-3 py-2">
+                                    <div class="flex items-center gap-2">
+                                        <span class="text-xs px-1.5 py-0.5 rounded"
+                                              :class="record.success_count > 0 ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'"
+                                              x-text="record.success_count + '/' + (record.total_engines || 3)"></span>
+                                        <span class="text-xs text-gray-400" x-text="record.time || record.timestamp || ''"></span>
                                     </div>
-                                </template>
-                            </div>
+                                </div>
+                            </template>
                         </div>
                     </div>
                 </div>
@@ -1762,8 +1684,6 @@
             return {
                 // 主 Tab
                 activeTab: 'sync',
-                // 配置子 Tab
-                configSubTab: 'projects',
 
                 // 状态数据
                 summary: { online: 0, offline: 0, slow: 0, avg_response_time_ms: 0, last_check_time: null },
@@ -1965,6 +1885,57 @@
                     } catch (e) {
                         this.showToast('更新失败: ' + e.message, 'error');
                     }
+                },
+
+                // ===== 统一配置：项目访问次数 & 搜索关键词 =====
+                increaseProjVisitCount(projectName) {
+                    if (!this.config.project_visit_counts) this.config.project_visit_counts = {};
+                    const current = this.config.project_visit_counts[projectName] || this.config.default_visit_count || 5;
+                    this.config.project_visit_counts[projectName] = Math.min(100, current + 1);
+                },
+
+                decreaseProjVisitCount(projectName) {
+                    if (!this.config.project_visit_counts) this.config.project_visit_counts = {};
+                    const current = this.config.project_visit_counts[projectName] || this.config.default_visit_count || 5;
+                    this.config.project_visit_counts[projectName] = Math.max(1, current - 1);
+                },
+
+                clampVisitCount(projectName) {
+                    if (!this.config.project_visit_counts) this.config.project_visit_counts = {};
+                    let v = parseInt(this.config.project_visit_counts[projectName]) || this.config.default_visit_count || 5;
+                    v = Math.max(1, Math.min(100, v));
+                    this.config.project_visit_counts[projectName] = v;
+                },
+
+                applyDefaultVisitCount() {
+                    if (!this.config.project_visit_counts) this.config.project_visit_counts = {};
+                    const def = this.config.default_visit_count || 5;
+                    for (const name in this.projects) {
+                        this.config.project_visit_counts[name] = def;
+                    }
+                    this.showToast('所有项目访问次数已设为默认值 ' + def, 'info');
+                },
+
+                updateProjectKeyword(projectName, index, value) {
+                    if (!this.config.project_search_keywords[projectName]) {
+                        this.config.project_search_keywords[projectName] = [projectName];
+                    }
+                    this.config.project_search_keywords[projectName][index] = value;
+                },
+
+                addProjectKeyword(projectName) {
+                    if (!this.config.project_search_keywords[projectName]) {
+                        this.config.project_search_keywords[projectName] = [projectName];
+                    }
+                    if (this.config.project_search_keywords[projectName].length < 3) {
+                        this.config.project_search_keywords[projectName].push('');
+                    }
+                },
+
+                removeProjectKeyword(projectName, index) {
+                    if (!this.config.project_search_keywords[projectName]) return;
+                    if (this.config.project_search_keywords[projectName].length <= 1) return;
+                    this.config.project_search_keywords[projectName].splice(index, 1);
                 },
 
                 // 单个 Checker 启动/停止

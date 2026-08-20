@@ -10,105 +10,105 @@ from datetime import datetime
 PROJECTS = [
     # === zhinenti.cn 系列 ===
     {
-        "name": "智能工作台", "url": "https://www.zhinenti.cn", "category": "AI工具", "visit_count": 5,
+        "name": "智能工作台", "url": "https://www.zhinenti.cn", "category": "AI工具",
         "sub_paths": [],  # SPA 站点，客户端路由，HTTP 访问子路径返回 404
         "is_spa": True,
     },
     {
-        "name": "部署助手", "url": "https://deploy.zhinenti.cn", "category": "AI工具", "visit_count": 5,
+        "name": "部署助手", "url": "https://deploy.zhinenti.cn", "category": "AI工具",
         "sub_paths": [],  # SPA 站点，客户端路由，HTTP 访问子路径返回 404
         "is_spa": True,
     },
     {
-        "name": "营销助手", "url": "https://craft.zhinenti.cn", "category": "AI工具", "visit_count": 5,
+        "name": "营销助手", "url": "https://craft.zhinenti.cn", "category": "AI工具",
         "sub_paths": [],  # SPA 站点，客户端路由，HTTP 访问子路径返回 404
         "is_spa": True,
     },
     {
-        "name": "智能部署", "url": "https://auto.zhinenti.cn", "category": "AI工具", "visit_count": 5,
+        "name": "智能部署", "url": "https://auto.zhinenti.cn", "category": "AI工具",
         "sub_paths": [],  # SPA 站点，客户端路由，HTTP 访问子路径返回 404
         "is_spa": True,
     },
     # === zhinenti.vip / xyz ===
     {
-        "name": "祝福生成", "url": "https://www.zhinenti.vip", "category": "工具", "visit_count": 5,
+        "name": "祝福生成", "url": "https://www.zhinenti.vip", "category": "工具",
         "sub_paths": ["/", "/#generate"],
     },
     {
-        "name": "AI文案", "url": "https://www.zhinenti.xyz", "category": "AI工具", "visit_count": 5,
+        "name": "AI文案", "url": "https://www.zhinenti.xyz", "category": "AI工具",
         "sub_paths": ["/", "/#generate"],
     },
     # === hpenn.online ===
     {
-        "name": "起名工具", "url": "https://www.hpenn.online", "category": "AI工具", "visit_count": 5,
+        "name": "起名工具", "url": "https://www.hpenn.online", "category": "AI工具",
         "sub_paths": ["/", "/features", "/login"],
     },
     # === hpenn.xyz 系列 ===
     {
-        "name": "文本工具", "url": "https://www.hpenn.xyz", "category": "工具", "visit_count": 5,
+        "name": "文本工具", "url": "https://www.hpenn.xyz", "category": "工具",
         "sub_paths": ["/", "/text-dedup", "/word-count", "/case-convert", "/text-diff", "/text-replace", "/text-sort"],
     },
     {
-        "name": "OCR识别", "url": "https://ocr.hpenn.xyz", "category": "工具", "visit_count": 5,
+        "name": "OCR识别", "url": "https://ocr.hpenn.xyz", "category": "工具",
         "sub_paths": ["/"],
     },
     {
-        "name": "AI简历", "url": "https://resume.hpenn.xyz", "category": "工具", "visit_count": 5,
+        "name": "AI简历", "url": "https://resume.hpenn.xyz", "category": "工具",
         "sub_paths": ["/", "/#optimize"],
     },
     {
-        "name": "文档摘要", "url": "https://doc.hpenn.xyz", "category": "工具", "visit_count": 5,
+        "name": "文档摘要", "url": "https://doc.hpenn.xyz", "category": "工具",
         "sub_paths": ["/", "/#summarize"],
     },
     {
-        "name": "文档转换", "url": "https://convert.hpenn.xyz", "category": "工具", "visit_count": 5,
+        "name": "文档转换", "url": "https://convert.hpenn.xyz", "category": "工具",
         "sub_paths": ["/"],
     },
     {
-        "name": "批量图片编辑", "url": "https://imgedit.hpenn.xyz", "category": "工具", "visit_count": 5,
+        "name": "批量图片编辑", "url": "https://imgedit.hpenn.xyz", "category": "工具",
         "sub_paths": ["/", "/#compress", "/#resize", "/#watermark", "/#format"],
     },
     {
-        "name": "图片尺寸", "url": "https://imgsize.hpenn.xyz", "category": "工具", "visit_count": 5,
+        "name": "图片尺寸", "url": "https://imgsize.hpenn.xyz", "category": "工具",
         "sub_paths": ["/"],
     },
     {
-        "name": "表格工具", "url": "https://table.hpenn.xyz", "category": "工具", "visit_count": 5,
+        "name": "表格工具", "url": "https://table.hpenn.xyz", "category": "工具",
         "sub_paths": ["/", "/edit", "/csv", "/xlsx", "/login", "/register"],
     },
     # === hpennn.xyz 系列 ===
     {
-        "name": "开发工具", "url": "https://www.hpennn.xyz", "category": "工具", "visit_count": 5,
+        "name": "开发工具", "url": "https://www.hpennn.xyz", "category": "工具",
         "sub_paths": ["/", "/json-formatter", "/base64", "/regex-tester", "/color-converter", "/timestamp", "/hash"],
     },
     {
-        "name": "导航站", "url": "https://www.hpennn.online", "category": "工具", "visit_count": 5,
+        "name": "导航站", "url": "https://www.hpennn.online", "category": "工具",
         "sub_paths": ["/", "/category", "/submit"],
     },
     {
-        "name": "智能搜索", "url": "https://smart.hpennn.xyz", "category": "工具", "visit_count": 5,
+        "name": "智能搜索", "url": "https://smart.hpennn.xyz", "category": "工具",
         "sub_paths": ["/", "/generate", "/copy", "/publish", "/#workflow"],
     },
     {
-        "name": "PPT工具", "url": "https://ppt.hpennn.xyz", "category": "工具", "visit_count": 5,
+        "name": "PPT工具", "url": "https://ppt.hpennn.xyz", "category": "工具",
         "sub_paths": ["/", "/ppt", "/report"],
     },
     {
-        "name": "内容生成", "url": "https://content.hpennn.xyz", "category": "AI工具", "visit_count": 5,
+        "name": "内容生成", "url": "https://content.hpennn.xyz", "category": "AI工具",
         "sub_paths": ["/", "/xiaohongshu", "/rewrite", "/scoring", "/video-script", "/sensitive"],
     },
     # === kuaisu 系列 ===
     {
-        "name": "图片工具", "url": "https://www.kuaisutupo.xyz", "category": "工具", "visit_count": 5,
+        "name": "图片工具", "url": "https://www.kuaisutupo.xyz", "category": "工具",
         "sub_paths": ["/", "/convert", "/compress", "/crop", "/watermark", "/splice", "/info"],
     },
     {
-        "name": "快速工具", "url": "https://www.kuaisu.online", "category": "工具", "visit_count": 5,
+        "name": "快速工具", "url": "https://www.kuaisu.online", "category": "工具",
         "sub_paths": ["/", "/mortgage-calculator", "/unit-converter", "/tax-calculator", "/date-calculator", "/bmi-calculator", "/exchange-rate"],
     },
     # === IP直连（不推送IndexNow） ===
     {
-        "name": "AI客服管理", "url": "http://47.113.216.237:8600", "category": "AI工具", "visit_count": 5,
+        "name": "AI客服管理", "url": "http://47.113.216.237:8600", "category": "AI工具",
         "sub_paths": [],  # SPA 站点，客户端路由，HTTP 访问子路径返回 404
         "is_spa": True,
     },
@@ -389,8 +389,8 @@ class RuntimeConfig:
         self.visitor_interval_min = 20
         self.visitor_interval_max = 45
         self.default_visit_count = 5
-        # 每个项目的 visit_count（可动态修改）
-        self.project_visit_counts = {p["name"]: p.get("visit_count", 5) for p in PROJECTS}
+        # 每个项目的 visit_count（可动态修改），默认使用 default_visit_count
+        self.project_visit_counts = {p["name"]: self.default_visit_count for p in PROJECTS}
         self._listeners = []  # 配置变更回调
 
     @classmethod
@@ -617,9 +617,8 @@ class RuntimeConfig:
                         self.project_search_keywords[pname] = valid_kws
 
         # ===== 确保 PROJECTS 中的每个项目在 project_visit_counts 中都有对应条目 =====
-        # 如果 project_visit_counts 为空或缺少项目，从 PROJECTS 的 visit_count 初始化
-        # 这样新加的项目会自动获得默认值，前端显示的值与实际使用保持一致
-        self._ensure_project_visit_counts()
+        # 新加的项目使用 default_visit_count 初始化
+        self._sync_project_visit_counts()
 
     def to_dict(self) -> dict:
         return {
@@ -678,15 +677,14 @@ class RuntimeConfig:
         """获取项目的模拟访问次数权重"""
         return self.project_visit_counts.get(project_name, self.default_visit_count)
 
-    def _ensure_project_visit_counts(self):
+    def _sync_project_visit_counts(self):
         """确保 PROJECTS 中的每个项目在 project_visit_counts 中都有对应条目
-        - 以 PROJECTS 列表中的 visit_count 作为初始默认值
         - 已存在的项目保留当前值（已持久化的配置优先）
-        - 不存在的项目从 PROJECTS 初始化
+        - 不存在的新项目使用 default_visit_count 初始化
         """
         for p in PROJECTS:
             if p["name"] not in self.project_visit_counts:
-                self.project_visit_counts[p["name"]] = p.get("visit_count", self.default_visit_count)
+                self.project_visit_counts[p["name"]] = self.default_visit_count
 
     def set_project_visit_count(self, project_name: str, count: int):
         """设置项目的模拟访问次数权重"""
