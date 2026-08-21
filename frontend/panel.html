@@ -305,9 +305,17 @@
     </div>
     <div class="p-5">
       <input type="hidden" id="chk-id">
-      <div class="form-group">
+      <div class="form-group" id="chk-name-group">
         <label class="form-label">名称</label>
-        <input type="text" id="chk-name" class="form-input" placeholder="如：主HTTP检测">
+        <input type="text" id="chk-name" class="form-input" placeholder="留空则自动生成">
+      </div>
+      <div class="form-group" id="chk-batch-group">
+        <label class="form-label">批量添加数量</label>
+        <div class="flex items-center gap-2">
+          <input type="number" id="chk-batch-count" class="form-input" value="1" min="1" max="50" style="width:100px" onchange="onBatchCountChange()">
+          <span class="text-xs text-slate-400" id="chk-batch-hint">添加1个检查器</span>
+        </div>
+        <p class="text-xs text-slate-400 mt-1">大于1时自动批量创建，名称格式：类型-序号，如 同步检测-1、同步检测-2</p>
       </div>
       <div class="grid grid-cols-2 gap-4">
         <div class="form-group">
@@ -659,11 +667,17 @@ async function showNodeDetail(nodeId) {
     ${!n.is_builtin ? `
     <div class="border-t pt-4">
       <h4 class="font-medium text-sm mb-2">远程安装</h4>
+      <div class="bg-blue-50 border border-blue-200 rounded p-3 mb-3">
+        <button class="btn btn-primary btn-sm w-full" onclick="oneClickInstall('${n.node_id}')">
+          🚀 一键安装全部运行环境（httpx + playwright + psutil + Chromium）
+        </button>
+      </div>
       <div class="flex gap-2">
         <input type="text" id="install-pkg" class="form-input" placeholder="包名，如 playwright" style="flex:1">
         <button class="btn btn-primary btn-sm" onclick="installPackage('${n.node_id}')">安装 pip 包</button>
         <button class="btn btn-success btn-sm" onclick="installBrowser('${n.node_id}')">安装浏览器</button>
       </div>
+      <div id="install-progress-${n.node_id}" class="mt-2 text-xs text-slate-500"></div>
     </div>` : ''}
   `;
   openModal('node-detail-modal');
@@ -683,6 +697,25 @@ async function installBrowser(nodeId) {
     method: 'POST', body: JSON.stringify({ command: 'install_browser' }),
   });
   toast('浏览器安装指令已下发');
+}
+
+async function oneClickInstall(nodeId) {
+  const prog = document.getElementById(`install-progress-${nodeId}`);
+  if (prog) prog.innerHTML = '⏳ 正在下发安装指令...';
+  const packages = ['httpx', 'playwright', 'psutil'];
+  for (const pkg of packages) {
+    if (prog) prog.innerHTML = `⏳ 正在安装 ${pkg}...（节点下次心跳执行）`;
+    await api(`/api/node/install-command?node_id=${nodeId}`, {
+      method: 'POST', body: JSON.stringify({ command: 'install_package', package: pkg }),
+    });
+    await new Promise(r => setTimeout(r, 500));
+  }
+  if (prog) prog.innerHTML = '⏳ 正在安装 Chromium 浏览器（可能需要几分钟）...';
+  await api(`/api/node/install-command?node_id=${nodeId}`, {
+    method: 'POST', body: JSON.stringify({ command: 'install_browser' }),
+  });
+  if (prog) prog.innerHTML = '✅ 全部安装指令已下发！节点将在30秒内心跳并依次安装，安装完成后自动刷新环境信息。';
+  toast('一键安装指令已全部下发，等待节点执行...');
 }
 
 async function deleteNode(nodeId) {
@@ -744,6 +777,9 @@ function onCheckerTypeChange() {
 async function showAddCheckerModal() {
   document.getElementById('checker-modal-title').textContent = '添加检查器';
   document.getElementById('chk-id').value = '';
+  document.getElementById('chk-batch-group').style.display = 'block';
+  document.getElementById('chk-batch-count').value = 1;
+  document.getElementById('chk-batch-hint').textContent = '添加1个检查器';
   document.getElementById('chk-name').value = '';
   document.getElementById('chk-type').value = 'sync';
   document.getElementById('chk-interval-min').value = 5;
@@ -765,6 +801,7 @@ async function editChecker(id) {
   if (!c) return;
   document.getElementById('checker-modal-title').textContent = '编辑检查器';
   document.getElementById('chk-id').value = c.id;
+  document.getElementById('chk-batch-group').style.display = 'none';
   document.getElementById('chk-name').value = c.name;
   document.getElementById('chk-type').value = c.type;
   document.getElementById('chk-interval-min').value = c.interval_min;
@@ -805,27 +842,61 @@ async function saveChecker() {
     config.visit_count = parseInt(document.getElementById('chk-browser-count').value);
     config.visit_inner_pages = document.getElementById('chk-browser-inner').checked;
   }
-  const body = {
-    name: document.getElementById('chk-name').value,
+
+  const typeName = { sync: '同步检测', async: '异步检测', browser: '浏览器检测' }[type] || type;
+  const manualName = document.getElementById('chk-name').value.trim();
+  const batchCount = id ? 1 : (parseInt(document.getElementById('chk-batch-count').value) || 1);
+
+  const buildBody = (name) => ({
+    name,
     type,
     node_id: document.getElementById('chk-node').value,
     interval_min: parseInt(document.getElementById('chk-interval-min').value),
     interval_max: parseInt(document.getElementById('chk-interval-max').value),
     projects: selectedProjects,
     config,
-  };
-  if (!body.name) return toast('请输入名称', 'warning');
+  });
+
   try {
     if (id) {
+      const body = buildBody(manualName || `${typeName}-${Date.now().toString(36)}`);
       await api(`/api/checkers/${id}`, { method: 'PUT', body: JSON.stringify(body) });
       toast('检查器已更新');
     } else {
-      await api('/api/checkers', { method: 'POST', body: JSON.stringify(body) });
-      toast('检查器已创建');
+      const existing = allCheckers.filter(c => c.type === type);
+      let startNum = existing.length + 1;
+      let created = 0;
+      for (let i = 0; i < batchCount; i++) {
+        let name;
+        if (batchCount === 1 && manualName) {
+          name = manualName;
+        } else {
+          name = `${typeName}-${startNum + i}`;
+          // 避免重名
+          while (allCheckers.some(c => c.name === name)) {
+            startNum++;
+            name = `${typeName}-${startNum + i}`;
+          }
+        }
+        await api('/api/checkers', { method: 'POST', body: JSON.stringify(buildBody(name)) });
+        allCheckers.push({ id: 'tmp', name, type });
+        created++;
+      }
+      toast(created > 1 ? `已批量创建 ${created} 个检查器` : '检查器已创建');
     }
     closeModal('checker-modal');
     loadCheckers();
   } catch (e) {}
+}
+
+function onBatchCountChange() {
+  const n = parseInt(document.getElementById('chk-batch-count').value) || 1;
+  const hint = document.getElementById('chk-batch-hint');
+  if (n <= 1) {
+    hint.textContent = '添加1个检查器';
+  } else {
+    hint.textContent = `将批量添加 ${n} 个检查器（自动命名）`;
+  }
 }
 
 async function deleteChecker(id) {
