@@ -114,31 +114,41 @@ def collect_env_info() -> dict:
     except Exception as e:
         log(f"[Env] 获取 pip 包列表失败: {e}")
 
-    # 检查 Chromium 是否安装（不实际启动浏览器，快速检测）
+    # 检查 Chromium 是否安装（多策略检测，不依赖 playwright 内部 API）
     if info["capabilities"]["playwright_version"]:
         chromium_installed = False
+
+        # 方法1: 检查 Playwright 浏览器目录（按平台标准路径）
         try:
-            # 方法1: 检查 Playwright 浏览器目录是否存在
-            from playwright._impl._driver import compute_driver_executable
-            driver_dir = os.path.dirname(compute_driver_executable())
-            # Playwright 的浏览器通常安装在用户目录
-            browsers_dir = None
+            candidate_dirs = []
             if sys.platform == "win32":
                 base = os.environ.get("LOCALAPPDATA", "")
                 if base:
-                    browsers_dir = os.path.join(base, "ms-playwright")
+                    candidate_dirs.append(os.path.join(base, "ms-playwright"))
             elif sys.platform == "darwin":
-                browsers_dir = os.path.expanduser("~/Library/Caches/ms-playwright")
+                candidate_dirs.append(os.path.expanduser("~/Library/Caches/ms-playwright"))
             else:
-                browsers_dir = os.path.expanduser("~/.cache/ms-playwright")
+                candidate_dirs.append(os.path.expanduser("~/.cache/ms-playwright"))
+            # 也检查 PLAYWRIGHT_BROWSERS_PATH 环境变量
+            env_path = os.environ.get("PLAYWRIGHT_BROWSERS_PATH", "")
+            if env_path:
+                candidate_dirs.append(env_path)
 
-            if browsers_dir and os.path.isdir(browsers_dir):
-                for name in os.listdir(browsers_dir):
-                    if name.lower().startswith("chromium"):
-                        chromium_installed = True
-                        break
-            # 方法2: 兜底，用 --dry-run 检测
-            if not chromium_installed:
+            for browsers_dir in candidate_dirs:
+                if browsers_dir and os.path.isdir(browsers_dir):
+                    for name in os.listdir(browsers_dir):
+                        if name.lower().startswith("chromium"):
+                            chromium_installed = True
+                            log(f"[Env] 在 {browsers_dir} 找到 {name}")
+                            break
+                if chromium_installed:
+                    break
+        except Exception as e:
+            log(f"[Env] Chromium 目录检测失败: {e}")
+
+        # 方法2: 用 playwright install --dry-run 兜底
+        if not chromium_installed:
+            try:
                 result = subprocess.run(
                     [sys.executable, "-m", "playwright", "install", "--dry-run", "chromium"],
                     capture_output=True, text=True, timeout=15,
@@ -147,8 +157,10 @@ def collect_env_info() -> dict:
                 output = ((result.stdout or "") + (result.stderr or "")).lower()
                 if "already installed" in output or "is installed" in output:
                     chromium_installed = True
-        except Exception as e:
-            log(f"[Env] Chromium 检测失败: {e}")
+                    log("[Env] dry-run 检测到 Chromium 已安装")
+            except Exception as e:
+                log(f"[Env] Chromium dry-run 检测失败: {e}")
+
         info["capabilities"]["chromium_installed"] = chromium_installed
 
     return info
