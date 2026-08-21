@@ -8,28 +8,22 @@ services:
     restart: unless-stopped
     environment:
       - TZ=Asia/Shanghai
-    # Playwright 需要更大的共享内存
-    shm_size: '512m'
-    # 日志配置 - 限制日志大小防止磁盘耗尽
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
-    # 健康检查配置
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8700/api/health', timeout=5).read()"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 30s
-    # 资源限制（适当提高以支持浏览器）
     deploy:
       resources:
         limits:
-          memory: 768M
+          memory: 512M
         reservations:
-          memory: 256M
-    # 数据持久化卷
+          memory: 128M
     volumes:
       - ./data:/app/data

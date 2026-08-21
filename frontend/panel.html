@@ -1,0 +1,1068 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Health Checker - 管理面板</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+  .sidebar { background: #1e293b; }
+  .sidebar-item { transition: all .15s; }
+  .sidebar-item:hover { background: #334155; }
+  .sidebar-item.active { background: #3b82f6; color: #fff; }
+  .card { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; }
+  .badge-green { background: #dcfce7; color: #166534; }
+  .badge-red { background: #fee2e2; color: #991b1b; }
+  .badge-yellow { background: #fef9c3; color: #854d0e; }
+  .badge-blue { background: #dbeafe; color: #1e40af; }
+  .badge-orange { background: #ffedd5; color: #9a3412; }
+  .badge-gray { background: #f1f5f9; color: #475569; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .status-online { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+  .status-offline { background: #ef4444; }
+  table { border-collapse: collapse; width: 100%; }
+  th { background: #f8fafc; text-align: left; padding: 10px 12px; font-size: 13px; color: #64748b; font-weight: 600; border-bottom: 1px solid #e2e8f0; }
+  td { padding: 10px 12px; font-size: 13px; border-bottom: 1px solid #f1f5f9; }
+  tr:hover td { background: #f8fafc; }
+  .btn { padding: 6px 14px; border-radius: 6px; font-size: 13px; cursor: pointer; border: none; transition: all .15s; display: inline-flex; align-items: center; gap: 4px; }
+  .btn-primary { background: #3b82f6; color: #fff; }
+  .btn-primary:hover { background: #2563eb; }
+  .btn-danger { background: #ef4444; color: #fff; }
+  .btn-danger:hover { background: #dc2626; }
+  .btn-success { background: #22c55e; color: #fff; }
+  .btn-success:hover { background: #16a34a; }
+  .btn-warning { background: #f59e0b; color: #fff; }
+  .btn-warning:hover { background: #d97706; }
+  .btn-gray { background: #e2e8f0; color: #475569; }
+  .btn-gray:hover { background: #cbd5e1; }
+  .btn-sm { padding: 4px 10px; font-size: 12px; }
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 50; display: flex; align-items: center; justify-content: center; }
+  .modal { background: #fff; border-radius: 10px; width: 560px; max-height: 85vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,.2); }
+  .modal-lg { width: 720px; }
+  .form-group { margin-bottom: 14px; }
+  .form-label { display: block; font-size: 13px; font-weight: 500; color: #334155; margin-bottom: 4px; }
+  .form-input, .form-select, .form-textarea { width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px; outline: none; transition: border .15s; }
+  .form-input:focus, .form-select:focus, .form-textarea:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,.1); }
+  .stat-card { padding: 18px; border-radius: 8px; }
+  .page { display: none; }
+  .page.active { display: block; }
+  .toast { position: fixed; top: 20px; right: 20px; z-index: 100; padding: 12px 20px; border-radius: 8px; color: #fff; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,.15); animation: slideIn .3s; }
+  @keyframes slideIn { from { transform: translateX(100px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+  .expand-row { display: none; }
+  .expand-row.show { display: table-row; }
+  .code-block { background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 6px; font-family: "Cascadia Code", "Fira Code", monospace; font-size: 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+  .top-bar { background: #fff; border-bottom: 1px solid #e2e8f0; }
+</style>
+</head>
+<body class="bg-gray-100 min-h-screen flex">
+
+<!-- 侧边栏 -->
+<aside class="sidebar w-52 min-h-screen flex-shrink-0 flex flex-col">
+  <div class="p-4 border-b border-slate-700">
+    <h1 class="text-white font-bold text-lg flex items-center gap-2">
+      <span class="text-2xl">🏥</span> Health Checker
+    </h1>
+    <p class="text-slate-400 text-xs mt-1">v3.0 节点面板</p>
+  </div>
+  <nav class="flex-1 py-3">
+    <a class="sidebar-item active flex items-center gap-3 px-4 py-2.5 text-slate-300 text-sm cursor-pointer" data-page="dashboard">
+      <span>📊</span> 仪表盘
+    </a>
+    <a class="sidebar-item flex items-center gap-3 px-4 py-2.5 text-slate-300 text-sm cursor-pointer" data-page="nodes">
+      <span>🖥️</span> 节点管理
+    </a>
+    <a class="sidebar-item flex items-center gap-3 px-4 py-2.5 text-slate-300 text-sm cursor-pointer" data-page="checkers">
+      <span>🔍</span> 检查器管理
+    </a>
+    <a class="sidebar-item flex items-center gap-3 px-4 py-2.5 text-slate-300 text-sm cursor-pointer" data-page="projects">
+      <span>📁</span> 项目管理
+    </a>
+    <a class="sidebar-item flex items-center gap-3 px-4 py-2.5 text-slate-300 text-sm cursor-pointer" data-page="config">
+      <span>📋</span> 巡检配置
+    </a>
+    <a class="sidebar-item flex items-center gap-3 px-4 py-2.5 text-slate-300 text-sm cursor-pointer" data-page="results">
+      <span>📈</span> 检测结果
+    </a>
+    <a class="sidebar-item flex items-center gap-3 px-4 py-2.5 text-slate-300 text-sm cursor-pointer" data-page="settings">
+      <span>🔧</span> 系统设置
+    </a>
+  </nav>
+  <div class="p-4 border-t border-slate-700">
+    <div id="ws-status" class="flex items-center gap-2 text-xs text-slate-400">
+      <span class="status-dot status-offline" id="ws-dot"></span>
+      <span id="ws-text">连接中...</span>
+    </div>
+  </div>
+</aside>
+
+<!-- 主内容区 -->
+<div class="flex-1 flex flex-col min-w-0">
+  <!-- 顶部状态栏 -->
+  <header class="top-bar px-6 py-3 flex items-center justify-between">
+    <h2 id="page-title" class="text-lg font-semibold text-slate-800">仪表盘</h2>
+    <div class="flex items-center gap-6 text-sm text-slate-600">
+      <span class="flex items-center gap-1.5"><span class="status-dot status-online"></span> 服务运行中</span>
+      <span>🖥️ 在线节点: <strong id="top-nodes" class="text-slate-800">0</strong></span>
+      <span>🔍 运行中: <strong id="top-checkers" class="text-slate-800">0</strong></span>
+      <span>📁 项目: <strong id="top-projects" class="text-slate-800">0</strong></span>
+    </div>
+  </header>
+
+  <main class="flex-1 p-6 overflow-auto">
+
+    <!-- ====== 仪表盘 ====== -->
+    <div id="page-dashboard" class="page active">
+      <div class="grid grid-cols-4 gap-4 mb-6">
+        <div class="stat-card bg-blue-500 text-white">
+          <div class="text-3xl font-bold" id="stat-projects">0</div>
+          <div class="text-sm opacity-90 mt-1">总项目数</div>
+        </div>
+        <div class="stat-card bg-green-500 text-white">
+          <div class="text-3xl font-bold" id="stat-online">0</div>
+          <div class="text-sm opacity-90 mt-1">在线项目</div>
+        </div>
+        <div class="stat-card bg-red-500 text-white">
+          <div class="text-3xl font-bold" id="stat-offline">0</div>
+          <div class="text-sm opacity-90 mt-1">异常项目</div>
+        </div>
+        <div class="stat-card bg-purple-500 text-white">
+          <div class="text-3xl font-bold" id="stat-nodes">0</div>
+          <div class="text-sm opacity-90 mt-1">在线节点</div>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-4 mb-6">
+        <div class="card p-5">
+          <h3 class="font-semibold text-slate-800 mb-3">🖥️ 节点状态概览</h3>
+          <div id="dashboard-nodes" class="space-y-2"></div>
+        </div>
+        <div class="card p-5">
+          <h3 class="font-semibold text-slate-800 mb-3">⚙️ 系统资源</h3>
+          <div id="dashboard-system" class="space-y-3 text-sm">
+            <div class="text-slate-400">加载中...</div>
+          </div>
+        </div>
+      </div>
+      <div class="card p-5">
+        <h3 class="font-semibold text-slate-800 mb-3">📋 最近检测结果</h3>
+        <div class="overflow-x-auto">
+          <table>
+            <thead><tr><th>项目</th><th>URL</th><th>状态</th><th>响应时间</th><th>检查时间</th></tr></thead>
+            <tbody id="dashboard-recent"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====== 节点管理 ====== -->
+    <div id="page-nodes" class="page">
+      <div class="card p-5 mb-4">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="font-semibold text-slate-800">节点接入说明</h3>
+        </div>
+        <p class="text-sm text-slate-600 mb-2">在本地电脑上运行以下命令即可接入节点：</p>
+        <div class="code-block" id="node-connect-cmd">python node_agent.py --server http://47.113.216.237:8700</div>
+        <p class="text-xs text-slate-400 mt-2">需要 Python 3.10+，并安装依赖：<code>pip install -r requirements.txt</code></p>
+      </div>
+      <div class="card p-5">
+        <h3 class="font-semibold text-slate-800 mb-3">节点列表</h3>
+        <div class="overflow-x-auto">
+          <table>
+            <thead><tr><th>节点名称</th><th>节点ID</th><th>IP</th><th>操作系统</th><th>Python</th><th>浏览器</th><th>状态</th><th>最后心跳</th><th>操作</th></tr></thead>
+            <tbody id="nodes-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====== 检查器管理 ====== -->
+    <div id="page-checkers" class="page">
+      <div class="card p-5">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="font-semibold text-slate-800">检查器列表</h3>
+          <button class="btn btn-primary" onclick="showAddCheckerModal()">+ 添加检查器</button>
+        </div>
+        <div class="overflow-x-auto">
+          <table>
+            <thead><tr><th>名称</th><th>类型</th><th>所属节点</th><th>状态</th><th>检查次数</th><th>失败</th><th>最后检查</th><th>操作</th></tr></thead>
+            <tbody id="checkers-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====== 项目管理 ====== -->
+    <div id="page-projects" class="page">
+      <div class="card p-5">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="font-semibold text-slate-800">项目列表</h3>
+          <button class="btn btn-primary" onclick="showProjectModal()">+ 添加项目</button>
+        </div>
+        <div class="overflow-x-auto">
+          <table>
+            <thead><tr><th>名称</th><th>URL</th><th>分类</th><th>SPA</th><th>子路径数</th><th>操作</th></tr></thead>
+            <tbody id="projects-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====== 巡检配置 ====== -->
+    <div id="page-config" class="page">
+      <div class="card p-5 max-w-2xl">
+        <h3 class="font-semibold text-slate-800 mb-4">巡检配置</h3>
+        <div id="config-form" class="space-y-4">
+          <div class="form-group">
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" id="cfg-enabled" class="w-4 h-4">
+              <span class="form-label" style="margin:0">启用巡检总开关</span>
+            </label>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div class="form-group">
+              <label class="form-label">开始时间</label>
+              <input type="time" id="cfg-start" class="form-input">
+            </div>
+            <div class="form-group">
+              <label class="form-label">结束时间</label>
+              <input type="time" id="cfg-end" class="form-input">
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div class="form-group">
+              <label class="form-label">最小检查间隔（分钟）</label>
+              <input type="number" id="cfg-interval-min" class="form-input" min="1" max="1440">
+            </div>
+            <div class="form-group">
+              <label class="form-label">最大检查间隔（分钟）</label>
+              <input type="number" id="cfg-interval-max" class="form-input" min="1" max="1440">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">默认搜索引擎</label>
+            <select id="cfg-engine" class="form-select">
+              <option value="baidu">百度</option>
+              <option value="bing">Bing</option>
+              <option value="google">Google</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">IndexNow 推送间隔（小时）</label>
+            <input type="number" id="cfg-indexnow" class="form-input" min="1" max="168">
+          </div>
+          <button class="btn btn-primary" onclick="saveConfig()">💾 保存配置</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ====== 检测结果 ====== -->
+    <div id="page-results" class="page">
+      <div class="card p-5 mb-4">
+        <div class="flex items-center gap-3">
+          <label class="text-sm text-slate-600">筛选节点：</label>
+          <select id="filter-node" class="form-select" style="width:200px" onchange="renderResults()">
+            <option value="">全部</option>
+          </select>
+        </div>
+      </div>
+      <div class="card p-5">
+        <h3 class="font-semibold text-slate-800 mb-3">检测结果</h3>
+        <div id="results-list" class="space-y-3"></div>
+      </div>
+    </div>
+
+    <!-- ====== 系统设置 ====== -->
+    <div id="page-settings" class="page">
+      <div class="card p-5 max-w-2xl mb-4">
+        <h3 class="font-semibold text-slate-800 mb-4">系统信息</h3>
+        <div id="settings-info" class="space-y-2 text-sm text-slate-600"></div>
+      </div>
+      <div class="card p-5 max-w-2xl mb-4">
+        <h3 class="font-semibold text-slate-800 mb-4">数据管理</h3>
+        <div class="flex gap-3">
+          <button class="btn btn-primary" onclick="exportConfig()">📥 导出配置</button>
+          <button class="btn btn-warning" onclick="document.getElementById('import-file').click()">📤 导入配置</button>
+          <input type="file" id="import-file" accept=".json" style="display:none" onchange="importConfig(event)">
+        </div>
+      </div>
+      <div class="card p-5 max-w-2xl">
+        <h3 class="font-semibold text-slate-800 mb-4">IndexNow</h3>
+        <div id="indexnow-info" class="space-y-2 text-sm text-slate-600 mb-3"></div>
+        <button class="btn btn-success" onclick="pushIndexNow()">🚀 立即推送</button>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- 添加/编辑 Checker 弹窗 -->
+<div id="checker-modal" class="modal-overlay" style="display:none">
+  <div class="modal modal-lg">
+    <div class="p-5 border-b flex items-center justify-between">
+      <h3 class="font-semibold text-lg" id="checker-modal-title">添加检查器</h3>
+      <button class="text-slate-400 hover:text-slate-600 text-xl" onclick="closeModal('checker-modal')">&times;</button>
+    </div>
+    <div class="p-5">
+      <input type="hidden" id="chk-id">
+      <div class="form-group">
+        <label class="form-label">名称</label>
+        <input type="text" id="chk-name" class="form-input" placeholder="如：主HTTP检测">
+      </div>
+      <div class="grid grid-cols-2 gap-4">
+        <div class="form-group">
+          <label class="form-label">类型</label>
+          <select id="chk-type" class="form-select" onchange="onCheckerTypeChange()">
+            <option value="sync">同步检测 (HTTP深度)</option>
+            <option value="async">异步检测 (搜索引擎)</option>
+            <option value="browser">浏览器检测 (Playwright)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">分配节点</label>
+          <select id="chk-node" class="form-select"></select>
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-4">
+        <div class="form-group">
+          <label class="form-label">最小间隔（分钟）</label>
+          <input type="number" id="chk-interval-min" class="form-input" value="5" min="1" max="1440">
+        </div>
+        <div class="form-group">
+          <label class="form-label">最大间隔（分钟）</label>
+          <input type="number" id="chk-interval-max" class="form-input" value="15" min="1" max="1440">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">分配项目（不选=全部项目）</label>
+        <div id="chk-projects" class="border rounded p-3 max-h-40 overflow-y-auto space-y-1"></div>
+      </div>
+      <!-- 类型特定配置 -->
+      <div id="chk-config-sync" class="border-t pt-4 mt-2">
+        <h4 class="font-medium text-sm text-slate-700 mb-2">同步检测配置</h4>
+        <div class="form-group">
+          <label class="form-label">User-Agent</label>
+          <input type="text" id="chk-sync-ua" class="form-input" value="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36">
+        </div>
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" id="chk-sync-deep" checked class="w-4 h-4">
+          <span class="text-sm">启用深度检测（SSL/资源/SEO）</span>
+        </label>
+      </div>
+      <div id="chk-config-async" class="border-t pt-4 mt-2" style="display:none">
+        <h4 class="font-medium text-sm text-slate-700 mb-2">异步检测配置</h4>
+        <div class="form-group">
+          <label class="form-label">搜索引擎</label>
+          <select id="chk-async-engine" class="form-select">
+            <option value="baidu">百度</option>
+            <option value="bing">Bing</option>
+            <option value="google">Google</option>
+          </select>
+        </div>
+      </div>
+      <div id="chk-config-browser" class="border-t pt-4 mt-2" style="display:none">
+        <h4 class="font-medium text-sm text-slate-700 mb-2">浏览器检测配置</h4>
+        <div class="grid grid-cols-2 gap-4">
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" id="chk-browser-headless" checked class="w-4 h-4">
+            <span class="text-sm">无头模式</span>
+          </label>
+          <div class="form-group" style="margin:0">
+            <label class="form-label">访问次数</label>
+            <input type="number" id="chk-browser-count" class="form-input" value="3" min="1" max="20">
+          </div>
+        </div>
+        <label class="flex items-center gap-2 cursor-pointer mt-2">
+          <input type="checkbox" id="chk-browser-inner" checked class="w-4 h-4">
+          <span class="text-sm">访问内页</span>
+        </label>
+      </div>
+    </div>
+    <div class="p-5 border-t flex justify-end gap-2">
+      <button class="btn btn-gray" onclick="closeModal('checker-modal')">取消</button>
+      <button class="btn btn-primary" onclick="saveChecker()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 项目弹窗 -->
+<div id="project-modal" class="modal-overlay" style="display:none">
+  <div class="modal">
+    <div class="p-5 border-b flex items-center justify-between">
+      <h3 class="font-semibold text-lg" id="project-modal-title">添加项目</h3>
+      <button class="text-slate-400 hover:text-slate-600 text-xl" onclick="closeModal('project-modal')">&times;</button>
+    </div>
+    <div class="p-5">
+      <input type="hidden" id="proj-original-name">
+      <div class="form-group">
+        <label class="form-label">项目名称</label>
+        <input type="text" id="proj-name" class="form-input">
+      </div>
+      <div class="form-group">
+        <label class="form-label">URL</label>
+        <input type="text" id="proj-url" class="form-input" placeholder="https://...">
+      </div>
+      <div class="form-group">
+        <label class="form-label">分类</label>
+        <input type="text" id="proj-category" class="form-input" value="工具">
+      </div>
+      <div class="form-group">
+        <label class="form-label">子路径（逗号分隔，如 /,/login）</label>
+        <input type="text" id="proj-subpaths" class="form-input" placeholder="/,/login">
+      </div>
+      <label class="flex items-center gap-2 cursor-pointer">
+        <input type="checkbox" id="proj-spa" class="w-4 h-4">
+        <span class="text-sm">SPA 站点（客户端路由）</span>
+      </label>
+    </div>
+    <div class="p-5 border-t flex justify-end gap-2">
+      <button class="btn btn-gray" onclick="closeModal('project-modal')">取消</button>
+      <button class="btn btn-primary" onclick="saveProject()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 节点详情弹窗 -->
+<div id="node-detail-modal" class="modal-overlay" style="display:none">
+  <div class="modal modal-lg">
+    <div class="p-5 border-b flex items-center justify-between">
+      <h3 class="font-semibold text-lg">节点详情</h3>
+      <button class="text-slate-400 hover:text-slate-600 text-xl" onclick="closeModal('node-detail-modal')">&times;</button>
+    </div>
+    <div class="p-5" id="node-detail-content"></div>
+  </div>
+</div>
+
+<!-- Toast 容器 -->
+<div id="toast-container"></div>
+
+<script>
+const API = '';
+let allNodes = [];
+let allCheckers = [];
+let allProjects = [];
+let ws = null;
+
+// ========== 导航 ==========
+document.querySelectorAll('.sidebar-item').forEach(item => {
+  item.addEventListener('click', () => {
+    document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
+    item.classList.add('active');
+    const page = item.dataset.page;
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.getElementById('page-' + page).classList.add('active');
+    document.getElementById('page-title').textContent = item.textContent.trim();
+    if (page === 'dashboard') loadDashboard();
+    if (page === 'nodes') loadNodes();
+    if (page === 'checkers') loadCheckers();
+    if (page === 'projects') loadProjects();
+    if (page === 'config') loadConfigForm();
+    if (page === 'results') loadResults();
+    if (page === 'settings') loadSettings();
+  });
+});
+
+// ========== API 封装 ==========
+async function api(path, opts = {}) {
+  try {
+    const resp = await fetch(API + path, {
+      headers: { 'Content-Type': 'application/json' },
+      ...opts,
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      throw new Error(err.detail || resp.statusText);
+    }
+    return resp.json();
+  } catch (e) {
+    toast(e.message, 'error');
+    throw e;
+  }
+}
+
+function toast(msg, type = 'success') {
+  const colors = { success: '#22c55e', error: '#ef4444', warning: '#f59e0b' };
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.style.background = colors[type] || '#333';
+  el.textContent = msg;
+  document.getElementById('toast-container').appendChild(el);
+  setTimeout(() => el.remove(), 3000);
+}
+
+function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+
+function fmtTime(ts) {
+  if (!ts) return '-';
+  try { return new Date(ts).toLocaleString('zh-CN'); } catch { return ts; }
+}
+
+function statusBadge(status) {
+  const map = {
+    online: ['badge-green', '● 在线'], offline: ['badge-red', '● 离线'],
+    slow: ['badge-yellow', '● 缓慢'], pending: ['badge-gray', '等待中'],
+    unknown: ['badge-gray', '未知'], running: ['badge-green', '运行中'],
+    paused: ['badge-yellow', '已暂停'], stopped: ['badge-gray', '已停止'],
+  };
+  const [cls, text] = map[status] || ['badge-gray', status];
+  return `<span class="badge ${cls}">${text}</span>`;
+}
+
+function checkerTypeBadge(type) {
+  const map = {
+    sync: ['badge-blue', '同步'], async: ['badge-orange', '异步'],
+    browser: ['badge-green', '浏览器'],
+  };
+  const [cls, text] = map[type] || ['badge-gray', type];
+  return `<span class="badge ${cls}">${text}</span>`;
+}
+
+// ========== WebSocket ==========
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${proto}//${location.host}/ws`);
+  ws.onopen = () => {
+    document.getElementById('ws-dot').className = 'status-dot status-online';
+    document.getElementById('ws-text').textContent = '实时连接';
+  };
+  ws.onclose = () => {
+    document.getElementById('ws-dot').className = 'status-dot status-offline';
+    document.getElementById('ws-text').textContent = '已断开，重连中...';
+    setTimeout(connectWS, 5000);
+  };
+  ws.onmessage = (e) => {
+    try {
+      const msg = JSON.parse(e.data);
+      if (msg.type === 'check_result') {
+        // 实时更新
+        const activePage = document.querySelector('.page.active').id;
+        if (activePage === 'page-dashboard') loadDashboard();
+        if (activePage === 'page-results') loadResults();
+      }
+      if (msg.type === 'config_update') {
+        // 可以实时更新配置
+      }
+    } catch {}
+  };
+}
+
+// ========== 仪表盘 ==========
+async function loadDashboard() {
+  try {
+    const data = await api('/api/dashboard');
+    const s = data.stats;
+    document.getElementById('stat-projects').textContent = s.total_projects;
+    document.getElementById('stat-online').textContent = s.online_projects;
+    document.getElementById('stat-offline').textContent = s.offline_projects + s.slow_projects;
+    document.getElementById('stat-nodes').textContent = s.online_nodes;
+    document.getElementById('top-nodes').textContent = s.online_nodes;
+    document.getElementById('top-checkers').textContent = s.running_checkers;
+    document.getElementById('top-projects').textContent = s.total_projects;
+
+    // 节点
+    const nodesHtml = data.nodes.map(n => `
+      <div class="flex items-center justify-between py-1.5 border-b last:border-0">
+        <span class="flex items-center gap-2">
+          <span class="status-dot ${n.status === 'online' ? 'status-online' : 'status-offline'}"></span>
+          ${n.name}
+        </span>
+        <span class="text-xs text-slate-400">${n.os || ''}</span>
+      </div>
+    `).join('');
+    document.getElementById('dashboard-nodes').innerHTML = nodesHtml || '<div class="text-slate-400 text-sm">暂无节点</div>';
+
+    // 系统
+    const sys = data.system || {};
+    const mem = sys.memory || {};
+    document.getElementById('dashboard-system').innerHTML = `
+      <div class="flex justify-between"><span>CPU 使用率</span><strong>${sys.cpu_percent != null ? sys.cpu_percent + '%' : '-'}</strong></div>
+      <div class="flex justify-between"><span>内存使用</span><strong>${mem.percent != null ? mem.percent + '%' : '-'}</strong></div>
+      <div class="flex justify-between"><span>内存总量</span><strong>${mem.total ? (mem.total / 1073741824).toFixed(1) + ' GB' : '-'}</strong></div>
+      <div class="flex justify-between"><span>服务版本</span><strong>v${sys.version || '3.0.0'}</strong></div>
+    `;
+
+    // 最近结果
+    const recentHtml = (data.recent_results || []).map(r => `
+      <tr>
+        <td class="font-medium">${r.name || r.project_name}</td>
+        <td class="text-slate-500 text-xs">${(r.url || r.project_url || '').substring(0, 50)}</td>
+        <td>${statusBadge(r.status)}</td>
+        <td>${r.response_time_ms ? r.response_time_ms + ' ms' : '-'}</td>
+        <td class="text-slate-400 text-xs">${fmtTime(r.timestamp)}</td>
+      </tr>
+    `).join('');
+    document.getElementById('dashboard-recent').innerHTML = recentHtml || '<tr><td colspan="5" class="text-center text-slate-400 py-4">暂无检测结果</td></tr>';
+  } catch (e) {}
+}
+
+// ========== 节点管理 ==========
+async function loadNodes() {
+  try {
+    const data = await api('/api/nodes');
+    allNodes = data.nodes;
+    const html = allNodes.map(n => `
+      <tr>
+        <td class="font-medium">
+          <span class="status-dot ${n.status === 'online' ? 'status-online' : 'status-offline'} mr-1"></span>
+          ${n.name} ${n.is_builtin ? '<span class="badge badge-blue ml-1">内置</span>' : ''}
+        </td>
+        <td class="text-slate-500 text-xs font-mono">${n.node_id}</td>
+        <td>${n.ip || '-'}</td>
+        <td>${n.os || '-'}</td>
+        <td>${n.python_version || '-'}</td>
+        <td>${n.capabilities?.chromium_installed ? '<span class="badge badge-green">✓ Chromium</span>' : '<span class="badge badge-gray">无</span>'}</td>
+        <td>${statusBadge(n.status)}</td>
+        <td class="text-xs text-slate-400">${fmtTime(n.last_heartbeat)}</td>
+        <td>
+          <button class="btn btn-sm btn-gray" onclick="showNodeDetail('${n.node_id}')">详情</button>
+          ${!n.is_builtin ? `<button class="btn btn-sm btn-danger" onclick="deleteNode('${n.node_id}')">删除</button>` : ''}
+        </td>
+      </tr>
+    `).join('');
+    document.getElementById('nodes-tbody').innerHTML = html;
+  } catch (e) {}
+}
+
+async function showNodeDetail(nodeId) {
+  const n = allNodes.find(x => x.node_id === nodeId);
+  if (!n) return;
+  const pkgs = (n.installed_packages || []).slice(0, 30).join('<br>');
+  const checkers = (n.checkers || []).map(cid => {
+    const c = allCheckers.find(x => x.id === cid);
+    return c ? `<span class="badge badge-blue mr-1 mb-1">${c.name}</span>` : '';
+  }).join('');
+  const caps = n.capabilities || {};
+  document.getElementById('node-detail-content').innerHTML = `
+    <div class="grid grid-cols-2 gap-4 text-sm mb-4">
+      <div><strong>节点ID:</strong> <span class="font-mono text-xs">${n.node_id}</span></div>
+      <div><strong>名称:</strong> ${n.name}</div>
+      <div><strong>IP:</strong> ${n.ip || '-'}</div>
+      <div><strong>状态:</strong> ${statusBadge(n.status)}</div>
+      <div><strong>操作系统:</strong> ${n.os || '-'}</div>
+      <div><strong>Python:</strong> ${n.python_version || '-'}</div>
+      <div><strong>注册时间:</strong> ${fmtTime(n.registered_at)}</div>
+      <div><strong>最后心跳:</strong> ${fmtTime(n.last_heartbeat)}</div>
+    </div>
+    <div class="mb-4">
+      <h4 class="font-medium text-sm mb-2">浏览器能力</h4>
+      <div class="text-sm space-y-1">
+        <div>Playwright: ${caps.playwright_version || '<span class="text-slate-400">未安装</span>'}</div>
+        <div>Chromium: ${caps.chromium_installed ? '<span class="text-green-600">已安装</span>' : '<span class="text-slate-400">未安装</span>'}</div>
+      </div>
+    </div>
+    ${checkers ? `<div class="mb-4"><h4 class="font-medium text-sm mb-2">分配的检查器</h4><div>${checkers}</div></div>` : ''}
+    <div class="mb-4">
+      <h4 class="font-medium text-sm mb-2">已安装包（前30个）</h4>
+      <div class="bg-gray-50 p-3 rounded text-xs max-h-40 overflow-y-auto">${pkgs || '无数据'}</div>
+    </div>
+    ${!n.is_builtin ? `
+    <div class="border-t pt-4">
+      <h4 class="font-medium text-sm mb-2">远程安装</h4>
+      <div class="flex gap-2">
+        <input type="text" id="install-pkg" class="form-input" placeholder="包名，如 playwright" style="flex:1">
+        <button class="btn btn-primary btn-sm" onclick="installPackage('${n.node_id}')">安装 pip 包</button>
+        <button class="btn btn-success btn-sm" onclick="installBrowser('${n.node_id}')">安装浏览器</button>
+      </div>
+    </div>` : ''}
+  `;
+  openModal('node-detail-modal');
+}
+
+async function installPackage(nodeId) {
+  const pkg = document.getElementById('install-pkg').value.trim();
+  if (!pkg) return toast('请输入包名', 'warning');
+  await api(`/api/node/install-command?node_id=${nodeId}`, {
+    method: 'POST', body: JSON.stringify({ command: 'install_package', package: pkg }),
+  });
+  toast('安装指令已下发，节点下次心跳时执行');
+}
+
+async function installBrowser(nodeId) {
+  await api(`/api/node/install-command?node_id=${nodeId}`, {
+    method: 'POST', body: JSON.stringify({ command: 'install_browser' }),
+  });
+  toast('浏览器安装指令已下发');
+}
+
+async function deleteNode(nodeId) {
+  if (!confirm('确定删除此节点？')) return;
+  await api(`/api/nodes/${nodeId}`, { method: 'DELETE' });
+  toast('节点已删除');
+  loadNodes();
+}
+
+// ========== 检查器管理 ==========
+async function loadCheckers() {
+  try {
+    const [cdata, ndata] = await Promise.all([api('/api/checkers'), api('/api/nodes')]);
+    allCheckers = cdata.checkers;
+    allNodes = ndata.nodes;
+    const html = allCheckers.map(c => {
+      const rt = c.runtime || {};
+      const node = allNodes.find(n => n.node_id === c.node_id);
+      const nodeName = node ? node.name : c.node_id;
+      let runtimeStatus = rt.running ? 'running' : (c.enabled ? 'pending' : 'stopped');
+      if (c.node_id !== 'builtin' && rt.node_online === false) runtimeStatus = 'offline';
+      return `
+        <tr>
+          <td class="font-medium">${c.name}</td>
+          <td>${checkerTypeBadge(c.type)}</td>
+          <td>${nodeName}</td>
+          <td>${statusBadge(runtimeStatus)}${rt.paused ? ' <span class="badge badge-yellow">暂停</span>' : ''}</td>
+          <td>${rt.check_count || 0}</td>
+          <td class="text-red-500">${rt.failed_count || 0}</td>
+          <td class="text-xs text-slate-400">${fmtTime(rt.last_check_time)}</td>
+          <td>
+            ${c.enabled ? `<button class="btn btn-sm btn-warning" onclick="controlChecker('${c.id}','pause')">暂停</button>` : `<button class="btn btn-sm btn-success" onclick="controlChecker('${c.id}','resume')">恢复</button>`}
+            <button class="btn btn-sm btn-gray" onclick="editChecker('${c.id}')">编辑</button>
+            <button class="btn btn-sm btn-danger" onclick="deleteChecker('${c.id}')">删除</button>
+          </td>
+        </tr>`;
+    }).join('');
+    document.getElementById('checkers-tbody').innerHTML = html || '<tr><td colspan="8" class="text-center text-slate-400 py-4">暂无检查器</td></tr>';
+  } catch (e) {}
+}
+
+function onCheckerTypeChange() {
+  const type = document.getElementById('chk-type').value;
+  document.getElementById('chk-config-sync').style.display = type === 'sync' ? 'block' : 'none';
+  document.getElementById('chk-config-async').style.display = type === 'async' ? 'block' : 'none';
+  document.getElementById('chk-config-browser').style.display = type === 'browser' ? 'block' : 'none';
+  // 更新节点选项：browser 不能选 builtin
+  const nodeSelect = document.getElementById('chk-node');
+  const currentVal = nodeSelect.value;
+  nodeSelect.innerHTML = allNodes
+    .filter(n => type !== 'browser' || n.node_id !== 'builtin' || n.capabilities?.has_browser)
+    .map(n => `<option value="${n.node_id}">${n.name}${n.is_builtin ? ' (内置)' : ''}</option>`).join('');
+  if (type === 'browser') {
+    const localNode = allNodes.find(n => n.node_id !== 'builtin' && n.capabilities?.has_browser);
+    if (localNode) nodeSelect.value = localNode.node_id;
+  }
+}
+
+async function showAddCheckerModal() {
+  document.getElementById('checker-modal-title').textContent = '添加检查器';
+  document.getElementById('chk-id').value = '';
+  document.getElementById('chk-name').value = '';
+  document.getElementById('chk-type').value = 'sync';
+  document.getElementById('chk-interval-min').value = 5;
+  document.getElementById('chk-interval-max').value = 15;
+  // 节点选项
+  const nodeSelect = document.getElementById('chk-node');
+  nodeSelect.innerHTML = allNodes.map(n => `<option value="${n.node_id}">${n.name}${n.is_builtin ? ' (内置)' : ''}</option>`).join('');
+  // 项目复选框
+  const projDiv = document.getElementById('chk-projects');
+  projDiv.innerHTML = allProjects.map(p =>
+    `<label class="flex items-center gap-2 cursor-pointer text-sm"><input type="checkbox" value="${p.name}" class="chk-proj-cb"> ${p.name}</label>`
+  ).join('');
+  onCheckerTypeChange();
+  openModal('checker-modal');
+}
+
+async function editChecker(id) {
+  const c = allCheckers.find(x => x.id === id);
+  if (!c) return;
+  document.getElementById('checker-modal-title').textContent = '编辑检查器';
+  document.getElementById('chk-id').value = c.id;
+  document.getElementById('chk-name').value = c.name;
+  document.getElementById('chk-type').value = c.type;
+  document.getElementById('chk-interval-min').value = c.interval_min;
+  document.getElementById('chk-interval-max').value = c.interval_max;
+  onCheckerTypeChange();
+  document.getElementById('chk-node').value = c.node_id;
+  // 项目
+  document.querySelectorAll('.chk-proj-cb').forEach(cb => {
+    cb.checked = (c.projects || []).includes(cb.value);
+  });
+  // 配置
+  const cfg = c.config || {};
+  if (c.type === 'sync') {
+    document.getElementById('chk-sync-ua').value = cfg.user_agent || '';
+    document.getElementById('chk-sync-deep').checked = cfg.deep_inspect !== false;
+  } else if (c.type === 'async') {
+    document.getElementById('chk-async-engine').value = cfg.search_engine || 'baidu';
+  } else if (c.type === 'browser') {
+    document.getElementById('chk-browser-headless').checked = cfg.headless !== false;
+    document.getElementById('chk-browser-count').value = cfg.visit_count || 3;
+    document.getElementById('chk-browser-inner').checked = cfg.visit_inner_pages !== false;
+  }
+  openModal('checker-modal');
+}
+
+async function saveChecker() {
+  const id = document.getElementById('chk-id').value;
+  const type = document.getElementById('chk-type').value;
+  const selectedProjects = Array.from(document.querySelectorAll('.chk-proj-cb:checked')).map(cb => cb.value);
+  const config = {};
+  if (type === 'sync') {
+    config.user_agent = document.getElementById('chk-sync-ua').value;
+    config.deep_inspect = document.getElementById('chk-sync-deep').checked;
+  } else if (type === 'async') {
+    config.search_engine = document.getElementById('chk-async-engine').value;
+  } else if (type === 'browser') {
+    config.headless = document.getElementById('chk-browser-headless').checked;
+    config.visit_count = parseInt(document.getElementById('chk-browser-count').value);
+    config.visit_inner_pages = document.getElementById('chk-browser-inner').checked;
+  }
+  const body = {
+    name: document.getElementById('chk-name').value,
+    type,
+    node_id: document.getElementById('chk-node').value,
+    interval_min: parseInt(document.getElementById('chk-interval-min').value),
+    interval_max: parseInt(document.getElementById('chk-interval-max').value),
+    projects: selectedProjects,
+    config,
+  };
+  if (!body.name) return toast('请输入名称', 'warning');
+  try {
+    if (id) {
+      await api(`/api/checkers/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+      toast('检查器已更新');
+    } else {
+      await api('/api/checkers', { method: 'POST', body: JSON.stringify(body) });
+      toast('检查器已创建');
+    }
+    closeModal('checker-modal');
+    loadCheckers();
+  } catch (e) {}
+}
+
+async function deleteChecker(id) {
+  if (!confirm('确定删除此检查器？')) return;
+  await api(`/api/checkers/${id}`, { method: 'DELETE' });
+  toast('已删除');
+  loadCheckers();
+}
+
+async function controlChecker(id, action) {
+  await api(`/api/checkers/${id}/${action}`, { method: 'POST' });
+  toast(`已${action === 'pause' ? '暂停' : '恢复'}`);
+  loadCheckers();
+}
+
+// ========== 项目管理 ==========
+async function loadProjects() {
+  try {
+    const data = await api('/api/projects');
+    allProjects = data.projects;
+    const html = allProjects.map(p => `
+      <tr>
+        <td class="font-medium">${p.name}</td>
+        <td class="text-slate-500 text-xs">${p.url}</td>
+        <td>${p.category || '-'}</td>
+        <td>${p.is_spa ? '<span class="badge badge-blue">SPA</span>' : '-'}</td>
+        <td>${(p.sub_paths || []).length}</td>
+        <td>
+          <button class="btn btn-sm btn-gray" onclick="editProject('${p.name}')">编辑</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteProject('${p.name}')">删除</button>
+        </td>
+      </tr>
+    `).join('');
+    document.getElementById('projects-tbody').innerHTML = html;
+  } catch (e) {}
+}
+
+function showProjectModal() {
+  document.getElementById('project-modal-title').textContent = '添加项目';
+  document.getElementById('proj-original-name').value = '';
+  document.getElementById('proj-name').value = '';
+  document.getElementById('proj-url').value = '';
+  document.getElementById('proj-category').value = '工具';
+  document.getElementById('proj-subpaths').value = '';
+  document.getElementById('proj-spa').checked = false;
+  openModal('project-modal');
+}
+
+function editProject(name) {
+  const p = allProjects.find(x => x.name === name);
+  if (!p) return;
+  document.getElementById('project-modal-title').textContent = '编辑项目';
+  document.getElementById('proj-original-name').value = name;
+  document.getElementById('proj-name').value = p.name;
+  document.getElementById('proj-url').value = p.url;
+  document.getElementById('proj-category').value = p.category || '';
+  document.getElementById('proj-subpaths').value = (p.sub_paths || []).join(',');
+  document.getElementById('proj-spa').checked = !!p.is_spa;
+  openModal('project-modal');
+}
+
+async function saveProject() {
+  const original = document.getElementById('proj-original-name').value;
+  const subpaths = document.getElementById('proj-subpaths').value
+    .split(',').map(s => s.trim()).filter(Boolean);
+  const body = {
+    name: document.getElementById('proj-name').value,
+    url: document.getElementById('proj-url').value,
+    category: document.getElementById('proj-category').value,
+    sub_paths: subpaths,
+    is_spa: document.getElementById('proj-spa').checked,
+  };
+  if (!body.name || !body.url) return toast('名称和URL不能为空', 'warning');
+  try {
+    if (original) {
+      await api(`/api/projects/${encodeURIComponent(original)}`, { method: 'PUT', body: JSON.stringify(body) });
+      toast('项目已更新');
+    } else {
+      await api('/api/projects', { method: 'POST', body: JSON.stringify(body) });
+      toast('项目已添加');
+    }
+    closeModal('project-modal');
+    loadProjects();
+  } catch (e) {}
+}
+
+async function deleteProject(name) {
+  if (!confirm(`确定删除项目「${name}」？`)) return;
+  await api(`/api/projects/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  toast('项目已删除');
+  loadProjects();
+}
+
+// ========== 巡检配置 ==========
+async function loadConfigForm() {
+  const cfg = await api('/api/config');
+  document.getElementById('cfg-enabled').checked = cfg.inspection_enabled;
+  document.getElementById('cfg-start').value = cfg.time_range?.start || '00:00';
+  document.getElementById('cfg-end').value = cfg.time_range?.end || '23:59';
+  document.getElementById('cfg-interval-min').value = cfg.interval_min;
+  document.getElementById('cfg-interval-max').value = cfg.interval_max;
+  document.getElementById('cfg-engine').value = cfg.search_engine;
+  document.getElementById('cfg-indexnow').value = cfg.indexnow_interval_hours || 24;
+}
+
+async function saveConfig() {
+  const body = {
+    inspection_enabled: document.getElementById('cfg-enabled').checked,
+    time_range: {
+      start: document.getElementById('cfg-start').value,
+      end: document.getElementById('cfg-end').value,
+    },
+    interval_min: parseInt(document.getElementById('cfg-interval-min').value),
+    interval_max: parseInt(document.getElementById('cfg-interval-max').value),
+    search_engine: document.getElementById('cfg-engine').value,
+    indexnow_interval_hours: parseInt(document.getElementById('cfg-indexnow').value),
+  };
+  await api('/api/config', { method: 'POST', body: JSON.stringify(body) });
+  toast('配置已保存');
+}
+
+// ========== 检测结果 ==========
+async function loadResults() {
+  try {
+    const [statusData, nodesData] = await Promise.all([api('/api/status'), api('/api/nodes')]);
+    allNodes = nodesData.nodes;
+    // 节点筛选
+    const filter = document.getElementById('filter-node');
+    const currentFilter = filter.value;
+    filter.innerHTML = '<option value="">全部</option>' +
+      allNodes.map(n => `<option value="${n.node_id}">${n.name}</option>`).join('');
+    filter.value = currentFilter;
+
+    const projects = statusData.projects || {};
+    const visitLatest = statusData.visit_latest || {};
+    let items = Object.values(projects);
+    if (filter.value) {
+      // 节点筛选（简化：只显示有该节点数据的结果）
+      items = items.filter(p => p.node_id === filter.value || !p.node_id);
+    }
+    const html = items.map(p => {
+      const visit = visitLatest[p.name];
+      return `
+        <div class="border rounded-lg p-4 hover:shadow-sm transition">
+          <div class="flex items-center justify-between mb-2">
+            <div>
+              <span class="font-medium text-slate-800">${p.name}</span>
+              <a href="${p.url}" target="_blank" class="text-xs text-blue-500 ml-2">${p.url}</a>
+            </div>
+            <div class="flex items-center gap-2">
+              ${statusBadge(p.status)}
+              ${p.response_time_ms ? `<span class="text-xs text-slate-400">${p.response_time_ms}ms</span>` : ''}
+            </div>
+          </div>
+          <div class="text-xs text-slate-500">
+            状态码: ${p.status_code || '-'} | 检查时间: ${fmtTime(p.timestamp)}
+            ${p.deep_inspect?.ssl_check ? `| SSL: ${p.deep_inspect.ssl_check.valid ? '✅' : '❌'}` : ''}
+            ${visit ? `| 浏览器访问: ${visit.success ? '✅' : '❌'} (${visit.pages_visited || 0}页)` : ''}
+          </div>
+          ${p.error ? `<div class="text-xs text-red-500 mt-1">${p.error}</div>` : ''}
+        </div>`;
+    }).join('');
+    document.getElementById('results-list').innerHTML = html || '<div class="text-center text-slate-400 py-8">暂无检测结果</div>';
+  } catch (e) {}
+}
+
+// ========== 系统设置 ==========
+async function loadSettings() {
+  const [health, idxInfo] = await Promise.all([
+    api('/api/health'),
+    api('/api/indexnow/verify').catch(() => null),
+  ]);
+  document.getElementById('settings-info').innerHTML = `
+    <div>版本: v${health.version || '3.0.0'}</div>
+    <div>项目数: ${health.projects_total}</div>
+    <div>在线节点: ${health.nodes_online}</div>
+    <div>检查器: ${health.checkers_total}</div>
+    <div>数据目录: ./data/ (Docker 卷挂载)</div>
+  `;
+  if (idxInfo) {
+    document.getElementById('indexnow-info').innerHTML = `
+      <div>密钥: <code class="bg-gray-100 px-1 rounded">${idxInfo.key}</code></div>
+      <div>验证文件: ${idxInfo.key_filename}</div>
+      <div>推送间隔: ${idxInfo.interval_hours} 小时</div>
+      <div class="text-xs text-slate-400 mt-1">将 ${idxInfo.key_filename} 文件放到网站根目录后即可推送</div>
+    `;
+  }
+}
+
+async function pushIndexNow() {
+  const result = await api('/api/indexnow/push', { method: 'POST' });
+  toast(result.message);
+}
+
+function exportConfig() {
+  Promise.all([api('/api/projects'), api('/api/checkers'), api('/api/nodes'), api('/api/config')])
+    .then(([projects, checkers, nodes, config]) => {
+      const data = { projects, checkers, nodes, config, exported_at: new Date().toISOString() };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'health-checker-config.json';
+      a.click();
+      toast('配置已导出');
+    });
+}
+
+function importConfig(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      const data = JSON.parse(e.target.result);
+      toast('配置导入功能需要手动确认，请通过 API 导入', 'warning');
+    } catch {
+      toast('文件格式错误', 'error');
+    }
+  };
+  reader.readAsText(file);
+}
+
+// ========== 初始化 ==========
+async function init() {
+  connectWS();
+  await Promise.all([loadProjects(), api('/api/nodes').then(d => { allNodes = d.nodes; })]);
+  loadDashboard();
+  // 定时刷新
+  setInterval(() => {
+    const active = document.querySelector('.page.active').id;
+    if (active === 'page-dashboard') loadDashboard();
+    if (active === 'page-nodes') loadNodes();
+    if (active === 'page-checkers') loadCheckers();
+  }, 15000);
+}
+
+init();
+</script>
+</body>
+</html>
