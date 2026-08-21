@@ -260,7 +260,7 @@ async def lifespan(app: FastAPI):
     _time_range_task = asyncio.create_task(time_range_monitor())
     _node_monitor_task = asyncio.create_task(node_monitor())
 
-    _indexnow_pusher = IndexNowPusher(load_projects(), key=config.indexnow_key or None)
+    _indexnow_pusher = IndexNowPusher(load_projects, key=config.indexnow_key or None)
     if config.indexnow_interval_hours:
         _indexnow_pusher.interval_hours = config.indexnow_interval_hours
     if not config.indexnow_key:
@@ -412,13 +412,12 @@ async def update_config(req: ConfigUpdateRequest):
     updates = req.model_dump(exclude_none=True)
     if req.time_range:
         updates["time_range"] = {"start": req.time_range.start, "end": req.time_range.end}
-        updates.pop("time_range", None) if not req.time_range else None
     if not updates:
         return {"message": "无更新", "config": config.to_dict()}
     result = await config.update(updates)
     # IndexNow 间隔
     if "indexnow_interval_hours" in updates and _indexnow_pusher:
-        _indexnow_pusher.set_interval(updates["indexnow_interval_hours"])
+        await _indexnow_pusher.set_interval(updates["indexnow_interval_hours"])
     # 启停
     if "inspection_enabled" in updates:
         if config.inspection_enabled and config.is_within_time_range():
@@ -697,7 +696,7 @@ async def indexnow_history(limit: int = 20):
 async def indexnow_set_interval(hours: int):
     if not _indexnow_pusher:
         raise HTTPException(503, "IndexNow 未初始化")
-    result = _indexnow_pusher.set_interval(hours)
+    result = await _indexnow_pusher.set_interval(hours)
     return result
 
 

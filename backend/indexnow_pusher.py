@@ -21,7 +21,8 @@ class IndexNowPusher:
     }
 
     def __init__(self, projects: list[dict], key: str | None = None):
-        self.projects = projects
+        # projects 可为 list（初始快照）或 callable（动态获取）
+        self._projects = projects
         self.key = key or uuid.uuid4().hex
         self.key_location = None
         self.interval_hours = 24
@@ -30,6 +31,16 @@ class IndexNowPusher:
         self._stop_event = asyncio.Event()
         self._history: list[dict] = []
         self._max_history = 50
+
+    @property
+    def projects(self) -> list[dict]:
+        """动态获取项目列表（支持项目增删后自动同步）"""
+        if callable(self._projects):
+            try:
+                return self._projects()
+            except Exception:
+                return []
+        return self._projects or []
 
     @property
     def key_filename(self) -> str:
@@ -152,12 +163,22 @@ class IndexNowPusher:
                 pass
         self._task = None
 
-    def set_interval(self, hours: int) -> dict:
+    async def set_interval(self, hours: int) -> dict:
         hours = max(1, min(168, hours))
         old = self.interval_hours
         self.interval_hours = hours
+        # 重启定时循环以应用新间隔
         if self.running:
+            self.running = False
             self._stop_event.set()
+            if self._task and not self._task.done():
+                self._task.cancel()
+                try:
+                    await self._task
+                except (asyncio.CancelledError, Exception):
+                    pass
+            self._task = None
+            self.start()
         return {"old_interval_hours": old, "new_interval_hours": hours}
 
     def get_history(self, limit: int = 20) -> list[dict]:

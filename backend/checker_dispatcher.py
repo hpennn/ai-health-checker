@@ -23,6 +23,8 @@ class CheckerDispatcher:
         self._builtin_instances: dict[str, object] = {}
         # 远程 checker 运行状态跟踪: {checker_id: {"last_result": ..., "check_count": ...}}
         self._remote_stats: dict[str, dict] = {}
+        # 远程 checker 手动暂停集合
+        self._paused_remote: set[str] = set()
         self._lock = asyncio.Lock()
 
     async def initialize(self):
@@ -82,15 +84,22 @@ class CheckerDispatcher:
                 # 远程节点 checker
                 stats = self._remote_stats.get(cid, {})
                 node = self.node_manager.get_node(cfg.get("node_id", ""))
-                node_online = node and node.get("status") == "online"
+                node_online = bool(node and node.get("status") == "online")
+                manually_paused = cid in self._paused_remote
+                if not node_online:
+                    current_task = "等待节点上线"
+                elif manually_paused:
+                    current_task = "已手动暂停"
+                else:
+                    current_task = "远程运行中"
                 entry["runtime"] = {
-                    "running": cfg.get("enabled", True) and node_online,
-                    "paused": not node_online,
+                    "running": cfg.get("enabled", True) and node_online and not manually_paused,
+                    "paused": manually_paused,
+                    "node_online": node_online,
                     "check_count": stats.get("check_count", 0),
                     "failed_count": stats.get("failed_count", 0),
                     "last_check_time": stats.get("last_check_time"),
-                    "current_task": "等待节点上线" if not node_online else "远程运行中",
-                    "node_online": node_online,
+                    "current_task": current_task,
                 }
             result.append(entry)
         return result
@@ -125,7 +134,7 @@ class CheckerDispatcher:
         return config
 
     async def update_checker(self, checker_id: str, updates: dict) -> dict | None:
-        """更新 checker 配置"""
+        """更新 checker 配置（先校验再写入，避免污染内存状态）"""
         cfg = None
         for i, c in enumerate(self.checkers_config):
             if c["id"] == checker_id:
@@ -134,18 +143,20 @@ class CheckerDispatcher:
         if not cfg:
             return None
 
-        old_node = cfg.get("node_id")
-        old_enabled = cfg.get("enabled", True)
-        # 更新字段
+        # 先在副本上计算新值并校验，校验通过后再写回
+        new_cfg = dict(cfg)
         for key in ("name", "type", "node_id", "enabled", "interval_min",
                      "interval_max", "projects", "config"):
             if key in updates:
-                cfg[key] = updates[key]
+                new_cfg[key] = updates[key]
 
-        # browser 不能在 builtin
-        if cfg.get("type") == "browser" and cfg.get("node_id") == "builtin":
+        if new_cfg.get("type") == "browser" and new_cfg.get("node_id") == "builtin":
             raise ValueError("浏览器检测不能分配给服务器内置节点")
 
+        old_node = cfg.get("node_id")
+        # 写回
+        for k, v in new_cfg.items():
+            cfg[k] = v
         save_checkers_config(self.checkers_config)
 
         # 处理 builtin 实例变更
@@ -196,6 +207,9 @@ class CheckerDispatcher:
     async def pause_checker(self, checker_id: str):
         if checker_id in self._builtin_instances:
             self._builtin_instances[checker_id].pause()
+        else:
+            # 远程 checker：加入暂停集合，节点下次心跳/拉取任务时感知
+            self._paused_remote.add(checker_id)
         logger.info(f"[Dispatcher] 暂停 checker: {checker_id}")
 
     async def resume_checker(self, checker_id: str):
@@ -206,6 +220,9 @@ class CheckerDispatcher:
             self._builtin_instances[checker_id].resume()
         elif cfg.get("node_id") == "builtin":
             await self._start_builtin_checker(cfg)
+        else:
+            # 远程 checker：移出暂停集合
+            self._paused_remote.discard(checker_id)
         logger.info(f"[Dispatcher] 恢复 checker: {checker_id}")
 
     # ========== 节点任务分发 ==========
@@ -215,7 +232,6 @@ class CheckerDispatcher:
         tasks = []
         for cfg in self.checkers_config:
             if cfg.get("node_id") == node_id and cfg.get("enabled", True):
-                # 过滤项目
                 cfg_projects = cfg.get("projects", [])
                 if cfg_projects:
                     assigned = [p for p in projects if p["name"] in cfg_projects]
@@ -223,6 +239,8 @@ class CheckerDispatcher:
                     assigned = list(projects)
                 task = dict(cfg)
                 task["assigned_projects"] = assigned
+                # 手动暂停的 checker 标记为 paused，节点收到后跳过执行
+                task["manually_paused"] = cfg["id"] in self._paused_remote
                 tasks.append(task)
         return tasks
 

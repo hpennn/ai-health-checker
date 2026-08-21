@@ -114,30 +114,42 @@ def collect_env_info() -> dict:
     except Exception as e:
         log(f"[Env] 获取 pip 包列表失败: {e}")
 
-    # 检查 Chromium 是否安装
+    # 检查 Chromium 是否安装（不实际启动浏览器，快速检测）
     if info["capabilities"]["playwright_version"]:
+        chromium_installed = False
         try:
-            result = subprocess.run(
-                [sys.executable, "-m", "playwright", "install", "--dry-run", "chromium"],
-                capture_output=True, text=True, timeout=15,
-                encoding="utf-8", errors="replace",
-            )
-            # 如果输出中包含 "is already installed" 则说明已安装
-            output = (result.stdout or "") + (result.stderr or "")
-            if "already installed" in output.lower() or "is installed" in output.lower():
-                info["capabilities"]["chromium_installed"] = True
+            # 方法1: 检查 Playwright 浏览器目录是否存在
+            from playwright._impl._driver import compute_driver_executable
+            driver_dir = os.path.dirname(compute_driver_executable())
+            # Playwright 的浏览器通常安装在用户目录
+            browsers_dir = None
+            if sys.platform == "win32":
+                base = os.environ.get("LOCALAPPDATA", "")
+                if base:
+                    browsers_dir = os.path.join(base, "ms-playwright")
+            elif sys.platform == "darwin":
+                browsers_dir = os.path.expanduser("~/Library/Caches/ms-playwright")
             else:
-                # 另一种检测方式：尝试导入并检查
-                try:
-                    from playwright.sync_api import sync_playwright
-                    with sync_playwright() as p:
-                        browser = p.chromium.launch(headless=True)
-                        browser.close()
-                    info["capabilities"]["chromium_installed"] = True
-                except Exception:
-                    info["capabilities"]["chromium_installed"] = False
-        except Exception:
-            info["capabilities"]["chromium_installed"] = False
+                browsers_dir = os.path.expanduser("~/.cache/ms-playwright")
+
+            if browsers_dir and os.path.isdir(browsers_dir):
+                for name in os.listdir(browsers_dir):
+                    if name.lower().startswith("chromium"):
+                        chromium_installed = True
+                        break
+            # 方法2: 兜底，用 --dry-run 检测
+            if not chromium_installed:
+                result = subprocess.run(
+                    [sys.executable, "-m", "playwright", "install", "--dry-run", "chromium"],
+                    capture_output=True, text=True, timeout=15,
+                    encoding="utf-8", errors="replace",
+                )
+                output = ((result.stdout or "") + (result.stderr or "")).lower()
+                if "already installed" in output or "is installed" in output:
+                    chromium_installed = True
+        except Exception as e:
+            log(f"[Env] Chromium 检测失败: {e}")
+        info["capabilities"]["chromium_installed"] = chromium_installed
 
     return info
 
@@ -341,8 +353,8 @@ async def run_async_check(project: dict, config: dict, search_engine: str = "bai
 
 
 # ========== 浏览器检测引擎（browser） ==========
-async def run_browser_check(project: dict, config: dict) -> dict:
-    """使用 Playwright 真实浏览器访问"""
+async def run_browser_check(project: dict, config: dict, browser_ctx: dict | None = None) -> dict:
+    """使用 Playwright 真实浏览器访问。若传入 browser_ctx 则复用已有浏览器实例。"""
     result = {
         "project_name": project["name"],
         "project_url": project["url"],
@@ -356,6 +368,7 @@ async def run_browser_check(project: dict, config: dict) -> dict:
         "user_agent": "",
         "device_type": "desktop",
         "status": "offline",
+        "status_code": None,
         "response_time_ms": None,
         "title": "",
         "content_length": 0,
@@ -365,14 +378,6 @@ async def run_browser_check(project: dict, config: dict) -> dict:
         "inner_pages": [],
     }
     start = time.time()
-
-    # 检查 playwright 可用性
-    try:
-        from playwright.async_api import async_playwright
-    except ImportError:
-        result["error"] = "Playwright 未安装，无法执行浏览器检测"
-        result["duration_seconds"] = round(time.time() - start, 2)
-        return result
 
     headless = config.get("headless", True)
     visit_count = config.get("visit_count", 3)
@@ -386,88 +391,112 @@ async def run_browser_check(project: dict, config: dict) -> dict:
     result["user_agent"] = ua_info["ua"]
     result["device_type"] = ua_info["type"]
 
+    owns_browser = browser_ctx is None
+    pw = None
+    browser = None
     try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(
+        if browser_ctx:
+            browser = browser_ctx["browser"]
+        else:
+            # 单项目独立运行时才自己启动浏览器
+            try:
+                from playwright.async_api import async_playwright
+            except ImportError:
+                result["error"] = "Playwright 未安装，无法执行浏览器检测"
+                result["duration_seconds"] = round(time.time() - start, 2)
+                return result
+            pw = await async_playwright().start()
+            browser = await pw.chromium.launch(
                 headless=headless,
                 args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
             )
-            context = await browser.new_context(
-                user_agent=ua_info["ua"],
-                viewport=ua_info["viewport"],
-                locale="zh-CN",
-                timezone_id="Asia/Shanghai",
-                ignore_https_errors=True,
-            )
-            page = await context.new_page()
 
-            # 访问首页
-            log(f"  → 浏览器访问: {project['name']} ({project['url']})")
-            resp = await page.goto(project["url"], wait_until="domcontentloaded", timeout=30000)
-            result["response_time_ms"] = round((time.time() - start) * 1000, 2)
-            if resp:
-                result["status_code"] = resp.status
-            await asyncio.sleep(random.uniform(2, 4))
+        context = await browser.new_context(
+            user_agent=ua_info["ua"],
+            viewport=ua_info["viewport"],
+            locale="zh-CN",
+            timezone_id="Asia/Shanghai",
+            ignore_https_errors=True,
+        )
+        page = await context.new_page()
 
-            # 提取标题和内容
+        log(f"  → 浏览器访问: {project['name']} ({project['url']})")
+        resp = await page.goto(project["url"], wait_until="domcontentloaded", timeout=30000)
+        result["response_time_ms"] = round((time.time() - start) * 1000, 2)
+        if resp:
+            result["status_code"] = resp.status
+        await asyncio.sleep(random.uniform(2, 4))
+
+        try:
+            result["title"] = await page.title()
+            result["content_length"] = len(await page.content())
+        except Exception:
+            pass
+
+        result["pages_visited"] = 1
+        result["success"] = True
+        result["status"] = "online"
+
+        # 随机滚动
+        try:
+            for _ in range(random.randint(1, 3)):
+                await asyncio.sleep(random.uniform(0.5, 1.5))
+                scroll_h = await page.evaluate("() => document.body.scrollHeight")
+                target_y = random.randint(0, max(100, scroll_h - 500))
+                await page.evaluate(f"window.scrollTo({{top:{target_y},behavior:'smooth'}})")
+        except Exception:
+            pass
+
+        # 访问内页
+        if visit_inner:
             try:
-                result["title"] = await page.title()
-                result["content_length"] = len(await page.content())
+                internal_links = await page.evaluate("""(baseUrl) => {
+                    const base = new URL(baseUrl);
+                    const links = Array.from(document.querySelectorAll('a[href]'));
+                    const internal = new Set();
+                    for (const a of links) {
+                        try {
+                            const u = new URL(a.href, baseUrl);
+                            if (u.hostname === base.hostname && u.protocol.startsWith('http')
+                                && !u.hash && !u.href.startsWith('mailto:') && !u.href.startsWith('javascript:')) {
+                                internal.add(u.href);
+                            }
+                        } catch(e) {}
+                    }
+                    return Array.from(internal);
+                }""", project["url"])
+
+                num_inner = min(random.randint(1, min(visit_count, 3)), len(internal_links))
+                for link_url in random.sample(internal_links, min(num_inner, len(internal_links))):
+                    try:
+                        await page.goto(link_url, wait_until="domcontentloaded", timeout=20000)
+                        await asyncio.sleep(random.uniform(2, 5))
+                        result["pages_visited"] += 1
+                        result["inner_pages"].append(link_url[:120])
+                    except Exception:
+                        continue
             except Exception:
                 pass
 
-            result["pages_visited"] = 1
-            result["success"] = True
-            result["status"] = "online"
-
-            # 随机滚动
-            try:
-                for _ in range(random.randint(1, 3)):
-                    await asyncio.sleep(random.uniform(0.5, 1.5))
-                    scroll_h = await page.evaluate("() => document.body.scrollHeight")
-                    target_y = random.randint(0, max(100, scroll_h - 500))
-                    await page.evaluate(f"window.scrollTo({{top:{target_y},behavior:'smooth'}})")
-            except Exception:
-                pass
-
-            # 访问内页
-            if visit_inner:
-                try:
-                    internal_links = await page.evaluate("""(baseUrl) => {
-                        const base = new URL(baseUrl);
-                        const links = Array.from(document.querySelectorAll('a[href]'));
-                        const internal = new Set();
-                        for (const a of links) {
-                            try {
-                                const u = new URL(a.href, baseUrl);
-                                if (u.hostname === base.hostname && u.protocol.startsWith('http')
-                                    && !u.hash && !u.href.startsWith('mailto:') && !u.href.startsWith('javascript:')) {
-                                    internal.add(u.href);
-                                }
-                            } catch(e) {}
-                        }
-                        return Array.from(internal);
-                    }""", project["url"])
-
-                    num_inner = min(random.randint(1, min(visit_count, 3)), len(internal_links))
-                    for link_url in random.sample(internal_links, min(num_inner, len(internal_links))):
-                        try:
-                            await page.goto(link_url, wait_until="domcontentloaded", timeout=20000)
-                            await asyncio.sleep(random.uniform(2, 5))
-                            result["pages_visited"] += 1
-                            result["inner_pages"].append(link_url[:120])
-                        except Exception:
-                            continue
-                except Exception:
-                    pass
-
-            await context.close()
-            await browser.close()
+        await context.close()
     except Exception as e:
         result["success"] = False
         result["status"] = "offline"
         result["error"] = str(e)[:200]
         log(f"  ✗ 浏览器访问失败: {e}")
+    finally:
+        # 只有自己启动的浏览器才关闭
+        if owns_browser:
+            if browser:
+                try:
+                    await browser.close()
+                except Exception:
+                    pass
+            if pw:
+                try:
+                    await pw.stop()
+                except Exception:
+                    pass
 
     result["duration_seconds"] = round(time.time() - start, 2)
     return result
@@ -556,6 +585,8 @@ class NodeAgent:
         try:
             async with httpx.AsyncClient(timeout=30) as client:
                 resp = await client.post(f"{self.server}{path}", json=data)
+                if resp.status_code == 404:
+                    return {"_status_code": 404}
                 resp.raise_for_status()
                 return resp.json()
         except Exception as e:
@@ -566,6 +597,8 @@ class NodeAgent:
         try:
             async with httpx.AsyncClient(timeout=30) as client:
                 resp = await client.get(f"{self.server}{path}", params=params)
+                if resp.status_code == 404:
+                    return {"_status_code": 404}
                 resp.raise_for_status()
                 return resp.json()
         except Exception as e:
@@ -592,28 +625,42 @@ class NodeAgent:
         log("[Register] 注册失败")
         return False
 
-    async def heartbeat(self) -> bool:
-        """发送心跳并获取更新"""
-        # 重新收集环境信息（轻量）
-        caps = self.env_info["capabilities"]
+    async def heartbeat(self, _depth: int = 0) -> bool:
+        """发送心跳并获取更新；服务器返回404时自动重新注册"""
+        if _depth > 3:
+            return False
+        # 如果有待上报的安装结果，安装后环境可能变化，重新收集一次
+        if self._install_results:
+            log("[Heartbeat] 检测到安装结果，重新收集环境信息...")
+            self.env_info = collect_env_info()
+
         payload = {
             "node_id": self.node_id,
             "status": "online",
-            "capabilities": caps,
+            "capabilities": self.env_info["capabilities"],
+            "installed_packages": self.env_info.get("installed_packages", []),
             "install_results": self._install_results if self._install_results else None,
         }
         result = await self._api_post("/api/node/heartbeat", payload)
-        self._install_results = []  # 清空已上报的安装结果
+        self._install_results = []
+
+        if result and result.get("_status_code") == 404:
+            log("[Heartbeat] 服务器未找到本节点，重新注册...")
+            if await self.register():
+                return await self.heartbeat(_depth + 1)
+            return False
+
         if result and "node" in result:
             self.tasks = result.get("tasks", [])
             self.projects = result.get("projects", [])
-            # 处理安装指令
             install_cmds = result.get("install_commands", [])
             if install_cmds:
                 log(f"[Heartbeat] 收到 {len(install_cmds)} 个安装指令")
                 for cmd in install_cmds:
                     ir = await execute_install_command(cmd)
                     self._install_results.append(ir)
+                self.env_info = collect_env_info()
+                return await self.heartbeat(_depth + 1)
             self._last_heartbeat = time.time()
             return True
         return False
@@ -641,10 +688,13 @@ class NodeAgent:
         """执行单个 checker 任务"""
         checker_id = task["id"]
         checker_type = task.get("type", "sync")
+
+        # 手动暂停的任务跳过执行
+        if task.get("manually_paused"):
+            return
+
         cfg = task.get("config", {})
         assigned = task.get("assigned_projects", [])
-
-        # 如果没有 assigned_projects，用全部 projects
         if not assigned:
             assigned = list(self.projects)
 
@@ -652,11 +702,12 @@ class NodeAgent:
         state = self._checker_states.setdefault(checker_id, {"last_run": 0})
         interval_min = task.get("interval_min", 5) * 60
         interval_max = task.get("interval_max", 15) * 60
+        # 随机化下次执行时间，避免所有 checker 同时集中执行
+        next_interval = random.uniform(interval_min, max(interval_min, interval_max))
 
-        # 检查是否到运行时间
         if state["last_run"] > 0:
             elapsed = now - state["last_run"]
-            if elapsed < interval_min:
+            if elapsed < next_interval:
                 return
 
         # browser 类型检查环境
@@ -666,40 +717,71 @@ class NodeAgent:
 
         log(f"[Task] 执行 {checker_type} checker: {task.get('name', checker_id)} ({len(assigned)} 个项目)")
         results = []
-        for project in assigned:
+
+        # browser 类型：复用一个浏览器实例处理所有项目，避免重复启动
+        browser_ctx = None
+        if checker_type == "browser":
             try:
-                if checker_type == "sync":
-                    r = await run_sync_check(project, cfg)
-                elif checker_type == "async":
-                    engine = cfg.get("search_engine", "baidu")
-                    kw = cfg.get("keywords", {}).get(project["name"], [project["name"]])
-                    r = await run_async_check(project, cfg, engine, kw)
-                elif checker_type == "browser":
-                    r = await run_browser_check(project, cfg)
-                else:
-                    continue
-                r["checker_id"] = checker_id
-                r["checker_name"] = task.get("name", "")
-                r["node_id"] = self.node_id
-                results.append(r)
-                status_icon = "✓" if r.get("status") == "online" else ("⚠" if r.get("status") == "slow" else "✗")
-                log(f"  {status_icon} {project['name']}: {r.get('status', '?')}")
+                from playwright.async_api import async_playwright
+                headless = cfg.get("headless", True)
+                pw = await async_playwright().start()
+                browser = await pw.chromium.launch(
+                    headless=headless,
+                    args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
+                )
+                browser_ctx = {"pw": pw, "browser": browser, "cfg": cfg}
+                log(f"  [Browser] Chromium 已启动（headless={headless}）")
+            except ImportError:
+                log(f"  [Browser] Playwright 未安装，跳过 {len(assigned)} 个项目")
+                state["last_run"] = time.time()
+                return
             except Exception as e:
-                log(f"  ✗ {project['name']}: 异常 {e}")
-                results.append({
-                    "checker_id": checker_id,
-                    "node_id": self.node_id,
-                    "project_name": project["name"],
-                    "project_url": project.get("url", ""),
-                    "name": project["name"],
-                    "url": project.get("url", ""),
-                    "checker_type": checker_type,
-                    "status": "offline",
-                    "error": str(e)[:120],
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                })
-            # 项目间短暂延迟
-            await asyncio.sleep(random.uniform(1, 3))
+                log(f"  [Browser] 启动失败: {e}")
+                state["last_run"] = time.time()
+                return
+
+        try:
+            for project in assigned:
+                try:
+                    if checker_type == "sync":
+                        r = await run_sync_check(project, cfg)
+                    elif checker_type == "async":
+                        engine = cfg.get("search_engine", "baidu")
+                        kw = cfg.get("keywords", {}).get(project["name"], [project["name"]])
+                        r = await run_async_check(project, cfg, engine, kw)
+                    elif checker_type == "browser":
+                        r = await run_browser_check(project, cfg, browser_ctx=browser_ctx)
+                    else:
+                        continue
+                    r["checker_id"] = checker_id
+                    r["checker_name"] = task.get("name", "")
+                    r["node_id"] = self.node_id
+                    results.append(r)
+                    status_icon = "✓" if r.get("status") == "online" else ("⚠" if r.get("status") == "slow" else "✗")
+                    log(f"  {status_icon} {project['name']}: {r.get('status', '?')}")
+                except Exception as e:
+                    log(f"  ✗ {project['name']}: 异常 {e}")
+                    results.append({
+                        "checker_id": checker_id,
+                        "node_id": self.node_id,
+                        "project_name": project["name"],
+                        "project_url": project.get("url", ""),
+                        "name": project["name"],
+                        "url": project.get("url", ""),
+                        "checker_type": checker_type,
+                        "status": "offline",
+                        "error": str(e)[:120],
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    })
+                await asyncio.sleep(random.uniform(1, 3))
+        finally:
+            if browser_ctx:
+                try:
+                    await browser_ctx["browser"].close()
+                    await browser_ctx["pw"].stop()
+                    log("  [Browser] Chromium 已关闭")
+                except Exception:
+                    pass
 
         if results:
             await self.report_results(checker_id, results)
