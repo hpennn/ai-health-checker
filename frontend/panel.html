@@ -6,54 +6,72 @@
 <title>AI Health Checker - 管理面板</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <style>
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
-  .sidebar { background: #1e293b; }
-  .sidebar-item { transition: all .15s; }
-  .sidebar-item:hover { background: #334155; }
-  .sidebar-item.active { background: #3b82f6; color: #fff; }
-  .card { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
-  .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; }
+  :root {
+    --primary: #4f46e5;
+    --primary-light: #6366f1;
+    --primary-dark: #4338ca;
+    --bg: #f1f5f9;
+    --sidebar-bg: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
+    --card-shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+    --card-shadow-hover: 0 4px 12px rgba(0,0,0,.08);
+  }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: var(--bg); }
+  .sidebar { background: var(--sidebar-bg); }
+  .sidebar-item { transition: all .2s; position: relative; }
+  .sidebar-item:hover { background: rgba(255,255,255,.08); color: #fff; }
+  .sidebar-item.active { background: linear-gradient(90deg, var(--primary), var(--primary-light)); color: #fff; box-shadow: 0 2px 8px rgba(79,70,229,.4); }
+  .sidebar-item.active::before { content:''; position:absolute; left:0; top:20%; bottom:20%; width:3px; background:#fff; border-radius:0 3px 3px 0; }
+  .card { background: #fff; border-radius: 12px; box-shadow: var(--card-shadow); border: 1px solid rgba(0,0,0,.03); transition: box-shadow .2s; }
+  .card:hover { box-shadow: var(--card-shadow-hover); }
+  .badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 500; letter-spacing: .2px; }
   .badge-green { background: #dcfce7; color: #166534; }
   .badge-red { background: #fee2e2; color: #991b1b; }
   .badge-yellow { background: #fef9c3; color: #854d0e; }
   .badge-blue { background: #dbeafe; color: #1e40af; }
   .badge-orange { background: #ffedd5; color: #9a3412; }
   .badge-gray { background: #f1f5f9; color: #475569; }
+  .badge-purple { background: #f3e8ff; color: #6b21a8; }
   .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-  .status-online { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+  .status-online { background: #22c55e; box-shadow: 0 0 8px rgba(34,197,94,.6); animation: pulse 2s infinite; }
   .status-offline { background: #ef4444; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.6} }
   table { border-collapse: collapse; width: 100%; }
-  th { background: #f8fafc; text-align: left; padding: 10px 12px; font-size: 13px; color: #64748b; font-weight: 600; border-bottom: 1px solid #e2e8f0; }
-  td { padding: 10px 12px; font-size: 13px; border-bottom: 1px solid #f1f5f9; }
+  th { background: #f8fafc; text-align: left; padding: 12px 14px; font-size: 12px; color: #64748b; font-weight: 600; border-bottom: 1px solid #e2e8f0; text-transform: uppercase; letter-spacing: .5px; }
+  td { padding: 12px 14px; font-size: 13px; border-bottom: 1px solid #f1f5f9; }
   tr:hover td { background: #f8fafc; }
-  .btn { padding: 6px 14px; border-radius: 6px; font-size: 13px; cursor: pointer; border: none; transition: all .15s; display: inline-flex; align-items: center; gap: 4px; }
-  .btn-primary { background: #3b82f6; color: #fff; }
-  .btn-primary:hover { background: #2563eb; }
+  .btn { padding: 7px 16px; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer; border: none; transition: all .15s; display: inline-flex; align-items: center; gap: 5px; }
+  .btn-primary { background: var(--primary); color: #fff; box-shadow: 0 1px 3px rgba(79,70,229,.3); }
+  .btn-primary:hover { background: var(--primary-dark); transform: translateY(-1px); box-shadow: 0 3px 8px rgba(79,70,229,.4); }
   .btn-danger { background: #ef4444; color: #fff; }
-  .btn-danger:hover { background: #dc2626; }
+  .btn-danger:hover { background: #dc2626; transform: translateY(-1px); }
   .btn-success { background: #22c55e; color: #fff; }
-  .btn-success:hover { background: #16a34a; }
+  .btn-success:hover { background: #16a34a; transform: translateY(-1px); }
   .btn-warning { background: #f59e0b; color: #fff; }
-  .btn-warning:hover { background: #d97706; }
-  .btn-gray { background: #e2e8f0; color: #475569; }
-  .btn-gray:hover { background: #cbd5e1; }
-  .btn-sm { padding: 4px 10px; font-size: 12px; }
-  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 50; display: flex; align-items: center; justify-content: center; }
-  .modal { background: #fff; border-radius: 10px; width: 560px; max-height: 85vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,.2); }
-  .modal-lg { width: 720px; }
-  .form-group { margin-bottom: 14px; }
-  .form-label { display: block; font-size: 13px; font-weight: 500; color: #334155; margin-bottom: 4px; }
-  .form-input, .form-select, .form-textarea { width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px; outline: none; transition: border .15s; }
-  .form-input:focus, .form-select:focus, .form-textarea:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,.1); }
-  .stat-card { padding: 18px; border-radius: 8px; }
+  .btn-warning:hover { background: #d97706; transform: translateY(-1px); }
+  .btn-gray { background: #f1f5f9; color: #475569; }
+  .btn-gray:hover { background: #e2e8f0; }
+  .btn-sm { padding: 5px 12px; font-size: 12px; border-radius: 6px; }
+  .modal-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.5); backdrop-filter: blur(4px); z-index: 50; display: flex; align-items: center; justify-content: center; animation: fadeIn .2s; }
+  @keyframes fadeIn { from{opacity:0} to{opacity:1} }
+  .modal { background: #fff; border-radius: 16px; width: 560px; max-height: 85vh; overflow-y: auto; box-shadow: 0 25px 60px rgba(0,0,0,.25); animation: slideUp .25s; }
+  @keyframes slideUp { from{transform:translateY(20px);opacity:0} to{transform:translateY(0);opacity:1} }
+  .modal-lg { width: 760px; }
+  .form-group { margin-bottom: 16px; }
+  .form-label { display: block; font-size: 13px; font-weight: 500; color: #334155; margin-bottom: 6px; }
+  .form-input, .form-select, .form-textarea { width: 100%; padding: 9px 13px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 13px; outline: none; transition: all .15s; background: #fff; }
+  .form-input:focus, .form-select:focus, .form-textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79,70,229,.12); }
+  .stat-card { padding: 22px; border-radius: 14px; position: relative; overflow: hidden; transition: transform .2s, box-shadow .2s; }
+  .stat-card:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(0,0,0,.15); }
+  .stat-card::after { content:''; position:absolute; right:-20px; top:-20px; width:100px; height:100px; border-radius:50%; background:rgba(255,255,255,.1); }
   .page { display: none; }
-  .page.active { display: block; }
-  .toast { position: fixed; top: 20px; right: 20px; z-index: 100; padding: 12px 20px; border-radius: 8px; color: #fff; font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,.15); animation: slideIn .3s; }
+  .page.active { display: block; animation: pageIn .25s; }
+  @keyframes pageIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+  .toast { position: fixed; top: 20px; right: 20px; z-index: 100; padding: 13px 22px; border-radius: 10px; color: #fff; font-size: 14px; box-shadow: 0 8px 24px rgba(0,0,0,.18); animation: slideIn .3s; font-weight: 500; }
   @keyframes slideIn { from { transform: translateX(100px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-  .expand-row { display: none; }
-  .expand-row.show { display: table-row; }
-  .code-block { background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 6px; font-family: "Cascadia Code", "Fira Code", monospace; font-size: 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
-  .top-bar { background: #fff; border-bottom: 1px solid #e2e8f0; }
+  .code-block { background: #0f172a; color: #e2e8f0; padding: 14px 16px; border-radius: 10px; font-family: "Cascadia Code", "Fira Code", "Consolas", monospace; font-size: 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; border: 1px solid #1e293b; }
+  .top-bar { background: rgba(255,255,255,.85); backdrop-filter: blur(10px); border-bottom: 1px solid #e2e8f0; position: sticky; top:0; z-index: 10; }
+  .quick-stat { display:inline-flex; align-items:center; gap:6px; padding:4px 12px; border-radius:20px; background:#f1f5f9; font-size:13px; }
 </style>
 </head>
 <body class="bg-gray-100 min-h-screen flex">
@@ -103,10 +121,10 @@
   <header class="top-bar px-6 py-3 flex items-center justify-between">
     <h2 id="page-title" class="text-lg font-semibold text-slate-800">仪表盘</h2>
     <div class="flex items-center gap-6 text-sm text-slate-600">
-      <span class="flex items-center gap-1.5"><span class="status-dot status-online"></span> 服务运行中</span>
-      <span>🖥️ 在线节点: <strong id="top-nodes" class="text-slate-800">0</strong></span>
-      <span>🔍 运行中: <strong id="top-checkers" class="text-slate-800">0</strong></span>
-      <span>📁 项目: <strong id="top-projects" class="text-slate-800">0</strong></span>
+      <span class="quick-stat"><span class="status-dot status-online"></span> 服务运行中</span>
+      <span class="quick-stat">🖥️ 在线节点: <strong id="top-nodes" class="text-slate-800 ml-1">0</strong></span>
+      <span class="quick-stat">🔍 运行中: <strong id="top-checkers" class="text-slate-800 ml-1">0</strong></span>
+      <span class="quick-stat">📁 项目: <strong id="top-projects" class="text-slate-800 ml-1">0</strong></span>
     </div>
   </header>
 
@@ -114,22 +132,42 @@
 
     <!-- ====== 仪表盘 ====== -->
     <div id="page-dashboard" class="page active">
-      <div class="grid grid-cols-4 gap-4 mb-6">
-        <div class="stat-card bg-blue-500 text-white">
-          <div class="text-3xl font-bold" id="stat-projects">0</div>
-          <div class="text-sm opacity-90 mt-1">总项目数</div>
+      <div class="grid grid-cols-4 gap-5 mb-6">
+        <div class="stat-card" style="background:linear-gradient(135deg,#667eea,#764ba2);color:#fff">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="text-3xl font-bold" id="stat-projects">0</div>
+              <div class="text-sm opacity-90 mt-1">总项目数</div>
+            </div>
+            <div class="text-4xl opacity-80">📁</div>
+          </div>
         </div>
-        <div class="stat-card bg-green-500 text-white">
-          <div class="text-3xl font-bold" id="stat-online">0</div>
-          <div class="text-sm opacity-90 mt-1">在线项目</div>
+        <div class="stat-card" style="background:linear-gradient(135deg,#11998e,#38ef7d);color:#fff">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="text-3xl font-bold" id="stat-online">0</div>
+              <div class="text-sm opacity-90 mt-1">在线项目</div>
+            </div>
+            <div class="text-4xl opacity-80">✅</div>
+          </div>
         </div>
-        <div class="stat-card bg-red-500 text-white">
-          <div class="text-3xl font-bold" id="stat-offline">0</div>
-          <div class="text-sm opacity-90 mt-1">异常项目</div>
+        <div class="stat-card" style="background:linear-gradient(135deg,#eb3349,#f45c43);color:#fff">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="text-3xl font-bold" id="stat-offline">0</div>
+              <div class="text-sm opacity-90 mt-1">异常项目</div>
+            </div>
+            <div class="text-4xl opacity-80">⚠️</div>
+          </div>
         </div>
-        <div class="stat-card bg-purple-500 text-white">
-          <div class="text-3xl font-bold" id="stat-nodes">0</div>
-          <div class="text-sm opacity-90 mt-1">在线节点</div>
+        <div class="stat-card" style="background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="text-3xl font-bold" id="stat-nodes">0</div>
+              <div class="text-sm opacity-90 mt-1">在线节点</div>
+            </div>
+            <div class="text-4xl opacity-80">🖥️</div>
+          </div>
         </div>
       </div>
       <div class="grid grid-cols-2 gap-4 mb-6">
@@ -384,6 +422,27 @@
           <input type="checkbox" id="chk-browser-inner" checked class="w-4 h-4">
           <span class="text-sm">访问内页</span>
         </label>
+        <div class="border-t mt-3 pt-3">
+          <label class="flex items-center gap-2 cursor-pointer mb-2">
+            <input type="checkbox" id="chk-browser-video" class="w-4 h-4" onchange="onVideoToggle()">
+            <span class="text-sm font-medium">🎬 启用视频播放</span>
+          </label>
+          <div id="chk-video-config" style="display:none" class="grid grid-cols-3 gap-3 mt-2">
+            <div class="form-group" style="margin:0">
+              <label class="form-label">播放个数</label>
+              <input type="number" id="chk-video-count" class="form-input" value="1" min="1" max="10">
+            </div>
+            <div class="form-group" style="margin:0">
+              <label class="form-label">最短(秒)</label>
+              <input type="number" id="chk-video-min" class="form-input" value="15" min="5" max="300">
+            </div>
+            <div class="form-group" style="margin:0">
+              <label class="form-label">最长(秒)</label>
+              <input type="number" id="chk-video-max" class="form-input" value="45" min="5" max="600">
+            </div>
+          </div>
+          <p class="text-xs text-slate-400 mt-1">自动检测页面 video 元素并播放，模拟真实用户停留</p>
+        </div>
       </div>
     </div>
     <div class="p-5 border-t flex justify-end gap-2">
@@ -519,8 +578,8 @@ function statusBadge(status) {
 
 function checkerTypeBadge(type) {
   const map = {
-    sync: ['badge-blue', '同步'], async: ['badge-orange', '异步'],
-    browser: ['badge-green', '浏览器'],
+    sync: ['badge-blue', '⚡ 同步'], async: ['badge-orange', '🔍 异步'],
+    browser: ['badge-green', '🌐 浏览器'], video: ['badge-purple', '🎬 视频'],
   };
   const [cls, text] = map[type] || ['badge-gray', type];
   return `<span class="badge ${cls}">${text}</span>`;
@@ -774,6 +833,11 @@ function onCheckerTypeChange() {
   }
 }
 
+function onVideoToggle() {
+  const enabled = document.getElementById('chk-browser-video').checked;
+  document.getElementById('chk-video-config').style.display = enabled ? 'grid' : 'none';
+}
+
 async function showAddCheckerModal() {
   document.getElementById('checker-modal-title').textContent = '添加检查器';
   document.getElementById('chk-id').value = '';
@@ -784,6 +848,11 @@ async function showAddCheckerModal() {
   document.getElementById('chk-type').value = 'sync';
   document.getElementById('chk-interval-min').value = 5;
   document.getElementById('chk-interval-max').value = 15;
+  document.getElementById('chk-browser-video').checked = false;
+  document.getElementById('chk-video-count').value = 1;
+  document.getElementById('chk-video-min').value = 15;
+  document.getElementById('chk-video-max').value = 45;
+  onVideoToggle();
   // 节点选项
   const nodeSelect = document.getElementById('chk-node');
   nodeSelect.innerHTML = allNodes.map(n => `<option value="${n.node_id}">${n.name}${n.is_builtin ? ' (内置)' : ''}</option>`).join('');
@@ -823,6 +892,11 @@ async function editChecker(id) {
     document.getElementById('chk-browser-headless').checked = cfg.headless !== false;
     document.getElementById('chk-browser-count').value = cfg.visit_count || 3;
     document.getElementById('chk-browser-inner').checked = cfg.visit_inner_pages !== false;
+    document.getElementById('chk-browser-video').checked = !!cfg.video_enabled;
+    document.getElementById('chk-video-count').value = cfg.video_play_count || 1;
+    document.getElementById('chk-video-min').value = cfg.video_duration_min || 15;
+    document.getElementById('chk-video-max').value = cfg.video_duration_max || 45;
+    onVideoToggle();
   }
   openModal('checker-modal');
 }
@@ -841,6 +915,10 @@ async function saveChecker() {
     config.headless = document.getElementById('chk-browser-headless').checked;
     config.visit_count = parseInt(document.getElementById('chk-browser-count').value);
     config.visit_inner_pages = document.getElementById('chk-browser-inner').checked;
+    config.video_enabled = document.getElementById('chk-browser-video').checked;
+    config.video_play_count = parseInt(document.getElementById('chk-video-count').value) || 1;
+    config.video_duration_min = parseInt(document.getElementById('chk-video-min').value) || 15;
+    config.video_duration_max = parseInt(document.getElementById('chk-video-max').value) || 45;
   }
 
   const typeName = { sync: '同步检测', async: '异步检测', browser: '浏览器检测' }[type] || type;

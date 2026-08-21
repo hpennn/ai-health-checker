@@ -353,6 +353,83 @@ async def run_async_check(project: dict, config: dict, search_engine: str = "bai
 
 
 # ========== 浏览器检测引擎（browser） ==========
+async def _play_videos(page, play_count: int, dur_min: int, dur_max: int) -> dict:
+    """在页面中查找并播放视频元素。优先 <video>，其次常见播放按钮。"""
+    info = {"played": False, "count": 0, "total_seconds": 0}
+    try:
+        video_info = await page.evaluate("""() => {
+            const videos = Array.from(document.querySelectorAll('video'));
+            return videos.map((v, i) => ({
+                index: i,
+                visible: v.offsetParent !== null,
+                duration: v.duration || 0,
+            }));
+        }""")
+    except Exception:
+        video_info = []
+
+    candidates = [v for v in video_info if v.get("visible")]
+    if candidates:
+        random.shuffle(candidates)
+        for vinfo in candidates[:play_count]:
+            try:
+                idx = vinfo["index"]
+                await page.evaluate(f"""() => {{
+                    const v = document.querySelectorAll('video')[{idx}];
+                    if (v) v.scrollIntoView({{behavior:'smooth', block:'center'}});
+                }}""")
+                await asyncio.sleep(1)
+                played = await page.evaluate(f"""() => {{
+                    const v = document.querySelectorAll('video')[{idx}];
+                    if (!v) return false;
+                    v.muted = true;
+                    const p = v.play();
+                    if (p && p.catch) p.catch(()=>{{}});
+                    return true;
+                }}""")
+                if played:
+                    wait_sec = random.randint(dur_min, dur_max)
+                    if vinfo.get("duration") and vinfo["duration"] > 0:
+                        wait_sec = min(wait_sec, int(vinfo["duration"]) + 2)
+                    await asyncio.sleep(wait_sec)
+                    await page.evaluate(f"""() => {{
+                        const v = document.querySelectorAll('video')[{idx}];
+                        if (v) {{ v.pause(); v.muted = false; }}
+                    }}""")
+                    info["played"] = True
+                    info["count"] += 1
+                    info["total_seconds"] += wait_sec
+            except Exception as e:
+                log(f"  [Video] 播放视频元素失败: {e}")
+                continue
+
+    if info["count"] == 0:
+        play_selectors = [
+            "button[aria-label*='播放']",
+            "button[class*='play-btn']",
+            "div[class*='play-btn']",
+            ".bilibili-player-video-btn-start",
+            ".ytp-play-button",
+        ]
+        for sel in play_selectors:
+            try:
+                btn = await page.query_selector(sel)
+                if btn and await btn.is_visible():
+                    await btn.scroll_into_view_if_needed()
+                    await asyncio.sleep(0.5)
+                    await btn.click()
+                    wait_sec = random.randint(dur_min, dur_max)
+                    await asyncio.sleep(wait_sec)
+                    info["played"] = True
+                    info["count"] += 1
+                    info["total_seconds"] += wait_sec
+                    break
+            except Exception:
+                continue
+
+    return info
+
+
 async def run_browser_check(project: dict, config: dict, browser_ctx: dict | None = None) -> dict:
     """使用 Playwright 真实浏览器访问。若传入 browser_ctx 则复用已有浏览器实例。"""
     result = {
@@ -376,12 +453,20 @@ async def run_browser_check(project: dict, config: dict, browser_ctx: dict | Non
         "error": None,
         "screenshot": None,
         "inner_pages": [],
+        "video_played": False,
+        "video_count": 0,
+        "video_play_seconds": 0,
     }
     start = time.time()
 
     headless = config.get("headless", True)
     visit_count = config.get("visit_count", 3)
     visit_inner = config.get("visit_inner_pages", True)
+    # 视频播放配置
+    video_enabled = config.get("video_enabled", False)
+    video_play_count = max(1, min(int(config.get("video_play_count", 1)), 10))
+    video_duration_min = max(5, int(config.get("video_duration_min", 15)))
+    video_duration_max = max(video_duration_min, int(config.get("video_duration_max", 45)))
     ua_info = random.choice([
         {"ua": USER_AGENTS[0], "type": "desktop", "viewport": {"width": 1366, "height": 768}},
         {"ua": USER_AGENTS[1], "type": "desktop", "viewport": {"width": 1440, "height": 900}},
@@ -446,6 +531,20 @@ async def run_browser_check(project: dict, config: dict, browser_ctx: dict | Non
                 await page.evaluate(f"window.scrollTo({{top:{target_y},behavior:'smooth'}})")
         except Exception:
             pass
+
+        # 视频播放
+        if video_enabled:
+            try:
+                vp = await _play_videos(
+                    page, video_play_count, video_duration_min, video_duration_max,
+                )
+                result["video_played"] = vp["played"]
+                result["video_count"] = vp["count"]
+                result["video_play_seconds"] = vp["total_seconds"]
+                if vp["played"]:
+                    log(f"  ▶ 播放了 {vp['count']} 个视频，共 {vp['total_seconds']} 秒")
+            except Exception as ve:
+                log(f"  [Video] 播放异常: {ve}")
 
         # 访问内页
         if visit_inner:
