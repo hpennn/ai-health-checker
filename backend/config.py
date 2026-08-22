@@ -237,6 +237,7 @@ class RuntimeConfig:
         self.project_visit_counts = {p["name"]: self.default_visit_count for p in projects}
         self.indexnow_interval_hours = 24
         self.indexnow_key = ""
+        self.browser_concurrency = 1
         self._listeners = []
 
     @classmethod
@@ -275,6 +276,7 @@ class RuntimeConfig:
             "visitor_interval_min", "visitor_interval_max",
             "default_visit_count", "project_visit_counts",
             "indexnow_interval_hours", "indexnow_key",
+            "browser_concurrency",
         ):
             if key in data:
                 setattr(self, key, data[key])
@@ -302,6 +304,7 @@ class RuntimeConfig:
             "project_visit_counts": self.project_visit_counts,
             "indexnow_interval_hours": self.indexnow_interval_hours,
             "indexnow_key": self.indexnow_key,
+            "browser_concurrency": self.browser_concurrency,
         }
 
     async def update(self, updates: dict) -> dict:

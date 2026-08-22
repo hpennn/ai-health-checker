@@ -355,6 +355,11 @@
               <input type="number" id="cfg-total-max" class="form-input" min="0" max="100000" value="0">
             </div>
           </div>
+          <div class="form-group">
+            <label class="form-label">浏览器并发数</label>
+            <input type="number" id="cfg-browser-concurrency" class="form-input" min="1" max="5" value="1">
+            <p class="text-xs text-slate-400 mt-1">同时启动的浏览器实例数（1-5），数值越大访问越快但资源消耗越高</p>
+          </div>
         </div>
 
         <!-- 搜索配置 -->
@@ -1270,6 +1275,7 @@ async function loadConfigForm() {
     document.getElementById('cfg-visitor-min').value = cfg.visitor_interval_min ?? 20;
     document.getElementById('cfg-visitor-max').value = cfg.visitor_interval_max ?? 45;
     document.getElementById('cfg-default-visit').value = cfg.default_visit_count ?? 5;
+    document.getElementById('cfg-browser-concurrency').value = cfg.browser_concurrency ?? 1;
 
     renderKeywordRows(cfg.project_search_keywords || {});
     renderVisitCountRows(cfg.project_visit_counts || {});
@@ -1367,6 +1373,7 @@ async function saveConfig() {
     visitor_interval_min: parseInt(document.getElementById('cfg-visitor-min').value),
     visitor_interval_max: parseInt(document.getElementById('cfg-visitor-max').value),
     default_visit_count: parseInt(document.getElementById('cfg-default-visit').value),
+    browser_concurrency: parseInt(document.getElementById('cfg-browser-concurrency').value) || 1,
     project_search_keywords: collectKeywords(),
     project_visit_counts: collectVisitCounts(),
   };

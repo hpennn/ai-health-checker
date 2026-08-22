@@ -680,6 +680,7 @@ class NodeAgent:
         self._last_heartbeat = 0
         self._install_results: list[dict] = []
         self._checker_states: dict[str, dict] = {}  # checker_id -> last_run_time
+        self.browser_concurrency = 1
 
         log(f"=" * 50)
         log(f"AI Health Checker 节点 Agent v{VERSION}")
@@ -772,6 +773,13 @@ class NodeAgent:
                     self._install_results.append(ir)
                 self.env_info = collect_env_info()
                 return await self.heartbeat(_depth + 1)
+            # 读取浏览器并发配置（1-5）
+            bc = result.get("browser_concurrency", 1)
+            try:
+                bc = int(bc)
+            except (TypeError, ValueError):
+                bc = 1
+            self.browser_concurrency = max(1, min(5, bc))
             self._last_heartbeat = time.time()
             return True
         return False
@@ -795,6 +803,62 @@ class NodeAgent:
                 return p
         return None
 
+    async def _browser_worker(self, projects: list[dict], cfg: dict,
+                              checker_id: str, checker_name: str) -> list[dict]:
+        """单个浏览器并发 worker：启动独立 Chromium 实例，顺序处理分配到的项目"""
+        results = []
+        pw = None
+        browser = None
+        headless = cfg.get("headless", True)
+        try:
+            from playwright.async_api import async_playwright
+            pw = await async_playwright().start()
+            browser = await pw.chromium.launch(
+                headless=headless,
+                args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
+            )
+            browser_ctx = {"pw": pw, "browser": browser, "cfg": cfg}
+            for project in projects:
+                try:
+                    r = await run_browser_check(project, cfg, browser_ctx=browser_ctx)
+                    r["checker_id"] = checker_id
+                    r["checker_name"] = checker_name
+                    r["node_id"] = self.node_id
+                    results.append(r)
+                    status_icon = "✓" if r.get("status") == "online" else ("⚠" if r.get("status") == "slow" else "✗")
+                    log(f"  {status_icon} {project['name']}: {r.get('status', '?')}")
+                except Exception as e:
+                    log(f"  ✗ {project['name']}: 异常 {e}")
+                    results.append({
+                        "checker_id": checker_id,
+                        "node_id": self.node_id,
+                        "project_name": project["name"],
+                        "project_url": project.get("url", ""),
+                        "name": project["name"],
+                        "url": project.get("url", ""),
+                        "checker_type": "browser",
+                        "status": "offline",
+                        "error": str(e)[:120],
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    })
+                await asyncio.sleep(random.uniform(1, 3))
+        except ImportError:
+            log(f"  [Browser] Playwright 未安装，worker 跳过 {len(projects)} 个项目")
+        except Exception as e:
+            log(f"  [Browser] worker 启动失败: {e}")
+        finally:
+            if browser:
+                try:
+                    await browser.close()
+                except Exception:
+                    pass
+            if pw:
+                try:
+                    await pw.stop()
+                except Exception:
+                    pass
+        return results
+
     async def execute_task(self, task: dict):
         """执行单个 checker 任务"""
         checker_id = task["id"]
@@ -808,6 +872,10 @@ class NodeAgent:
         assigned = task.get("assigned_projects", [])
         if not assigned:
             assigned = list(self.projects)
+        else:
+            assigned = list(assigned)
+        # 每次执行前随机打乱项目顺序，模拟真实用户行为
+        random.shuffle(assigned)
 
         now = time.time()
         state = self._checker_states.setdefault(checker_id, {"last_run": 0})
@@ -826,32 +894,30 @@ class NodeAgent:
             log(f"[Task] {checker_id}: Chromium 未安装，跳过浏览器检测")
             return
 
-        log(f"[Task] 执行 {checker_type} checker: {task.get('name', checker_id)} ({len(assigned)} 个项目)")
+        checker_name = task.get("name", checker_id)
+        log(f"[Task] 执行 {checker_type} checker: {checker_name} ({len(assigned)} 个项目)")
         results = []
 
-        # browser 类型：复用一个浏览器实例处理所有项目，避免重复启动
-        browser_ctx = None
         if checker_type == "browser":
-            try:
-                from playwright.async_api import async_playwright
-                headless = cfg.get("headless", True)
-                pw = await async_playwright().start()
-                browser = await pw.chromium.launch(
-                    headless=headless,
-                    args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
+            concurrency = max(1, min(5, self.browser_concurrency))
+            if concurrency <= 1:
+                # 单浏览器实例顺序处理（保持原有行为）
+                log(f"  [Browser] 单浏览器模式，顺序处理 {len(assigned)} 个项目")
+                results = await self._browser_worker(assigned, cfg, checker_id, checker_name)
+            else:
+                # 多浏览器并发：将项目分成 N 组，每组一个独立浏览器实例
+                n = min(concurrency, len(assigned))
+                groups = [[] for _ in range(n)]
+                for i, proj in enumerate(assigned):
+                    groups[i % n].append(proj)
+                log(f"  [Browser] 并发模式: {n} 个浏览器实例，每组项目数: {[len(g) for g in groups]}")
+                worker_results = await asyncio.gather(
+                    *[self._browser_worker(g, cfg, checker_id, checker_name) for g in groups]
                 )
-                browser_ctx = {"pw": pw, "browser": browser, "cfg": cfg}
-                log(f"  [Browser] Chromium 已启动（headless={headless}）")
-            except ImportError:
-                log(f"  [Browser] Playwright 未安装，跳过 {len(assigned)} 个项目")
-                state["last_run"] = time.time()
-                return
-            except Exception as e:
-                log(f"  [Browser] 启动失败: {e}")
-                state["last_run"] = time.time()
-                return
-
-        try:
+                for wr in worker_results:
+                    results.extend(wr)
+        else:
+            # sync / async 类型：顺序处理（项目列表已在上方 shuffle）
             for project in assigned:
                 try:
                     if checker_type == "sync":
@@ -860,12 +926,10 @@ class NodeAgent:
                         engine = cfg.get("search_engine", "baidu")
                         kw = cfg.get("keywords", {}).get(project["name"], [project["name"]])
                         r = await run_async_check(project, cfg, engine, kw)
-                    elif checker_type == "browser":
-                        r = await run_browser_check(project, cfg, browser_ctx=browser_ctx)
                     else:
                         continue
                     r["checker_id"] = checker_id
-                    r["checker_name"] = task.get("name", "")
+                    r["checker_name"] = checker_name
                     r["node_id"] = self.node_id
                     results.append(r)
                     status_icon = "✓" if r.get("status") == "online" else ("⚠" if r.get("status") == "slow" else "✗")
@@ -885,14 +949,6 @@ class NodeAgent:
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     })
                 await asyncio.sleep(random.uniform(1, 3))
-        finally:
-            if browser_ctx:
-                try:
-                    await browser_ctx["browser"].close()
-                    await browser_ctx["pw"].stop()
-                    log("  [Browser] Chromium 已关闭")
-                except Exception:
-                    pass
 
         if results:
             await self.report_results(checker_id, results)
@@ -921,8 +977,8 @@ class NodeAgent:
                     await self.heartbeat()
                     last_hb = now
 
-                # 执行任务
-                for task in self.tasks:
+                # 执行任务（每次循环随机打乱 checker 顺序，模拟真实用户行为）
+                for task in random.sample(self.tasks, len(self.tasks)):
                     if not self.running:
                         break
                     if task.get("enabled", True):

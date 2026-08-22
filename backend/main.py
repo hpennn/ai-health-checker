@@ -88,6 +88,7 @@ class ConfigUpdateRequest(BaseModel):
     visitor_interval_max: Optional[int] = Field(default=None, ge=1, le=1440)
     default_visit_count: Optional[int] = Field(default=None, ge=1, le=100)
     indexnow_interval_hours: Optional[int] = Field(default=None, ge=1, le=168)
+    browser_concurrency: Optional[int] = Field(default=None, ge=1, le=5)
 
 
 # 节点模型
@@ -497,11 +498,13 @@ async def node_heartbeat(req: NodeHeartbeatRequest):
         raise HTTPException(404, result["error"])
     tasks = dispatcher.get_node_tasks(req.node_id) if dispatcher else []
     # 节点恢复时自动恢复其 checker（builtin 实例由 dispatcher 管理，这里仅通知）
+    config = RuntimeConfig.get_instance()
     return {
         "node": result["node"],
         "tasks": tasks,
         "install_commands": result.get("install_commands", []),
         "projects": load_projects(),
+        "browser_concurrency": config.browser_concurrency,
     }
 
 
