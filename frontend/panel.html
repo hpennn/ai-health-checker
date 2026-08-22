@@ -94,6 +94,9 @@
     <a class="sidebar-item flex items-center gap-3 px-4 py-2.5 text-slate-300 text-sm cursor-pointer" data-page="checkers">
       <span>🔍</span> 检查器管理
     </a>
+    <a class="sidebar-item flex items-center gap-3 px-4 py-2.5 text-slate-300 text-sm cursor-pointer" data-page="videos">
+      <span>🎬</span> 视频播放
+    </a>
     <a class="sidebar-item flex items-center gap-3 px-4 py-2.5 text-slate-300 text-sm cursor-pointer" data-page="projects">
       <span>📁</span> 项目管理
     </a>
@@ -230,6 +233,56 @@
       </div>
     </div>
 
+
+    <!-- ====== 视频播放 ====== -->
+    <div id="page-videos" class="page">
+      <!-- 播放状态面板 -->
+      <div class="grid grid-cols-2 gap-5 mb-5">
+        <div class="card p-5">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="font-semibold text-slate-800 flex items-center gap-2">
+              <span>⚡</span> 同步视频访问 (sync)
+            </h3>
+            <span id="video-sync-badge" class="badge badge-gray">未开始</span>
+          </div>
+          <p class="text-xs text-slate-500 mb-3">随同步检测一起触发，在页面加载后播放视频。</p>
+          <div class="flex gap-2">
+            <button class="btn btn-success btn-sm" id="btn-sync-start" onclick="videoControl('sync','start')">▶ 启动</button>
+            <button class="btn btn-danger btn-sm" id="btn-sync-stop" onclick="videoControl('sync','stop')">■ 停止</button>
+          </div>
+        </div>
+        <div class="card p-5">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="font-semibold text-slate-800 flex items-center gap-2">
+              <span>🔍</span> 异步视频访问 (async)
+            </h3>
+            <span id="video-async-badge" class="badge badge-gray">未开始</span>
+          </div>
+          <p class="text-xs text-slate-500 mb-3">独立后台任务，按配置循环访问视频页面。</p>
+          <div class="flex gap-2">
+            <button class="btn btn-success btn-sm" id="btn-async-start" onclick="videoControl('async','start')">▶ 启动</button>
+            <button class="btn btn-danger btn-sm" id="btn-async-stop" onclick="videoControl('async','stop')">■ 停止</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 视频列表 -->
+      <div class="card p-5">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="font-semibold text-slate-800">视频配置列表</h3>
+          <button class="btn btn-primary" onclick="showVideoModal()">+ 添加视频</button>
+        </div>
+        <div class="overflow-x-auto">
+          <table>
+            <thead>
+              <tr><th>名称</th><th>URL</th><th>播放次数</th><th>状态</th><th>操作</th></tr>
+            </thead>
+            <tbody id="videos-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
     <!-- ====== 项目管理 ====== -->
     <div id="page-projects" class="page">
       <div class="card p-5">
@@ -247,10 +300,11 @@
     </div>
 
     <!-- ====== 巡检配置 ====== -->
-    <div id="page-config" class="page">
-      <div class="card p-5 max-w-2xl">
-        <h3 class="font-semibold text-slate-800 mb-4">巡检配置</h3>
-        <div id="config-form" class="space-y-4">
+    <div id="page-config" class="page pb-20">
+      <div class="grid grid-cols-2 gap-5">
+        <!-- 巡检调度 -->
+        <div class="card p-5">
+          <h3 class="font-semibold text-slate-800 mb-4 flex items-center gap-2"><span>⏰</span> 巡检调度</h3>
           <div class="form-group">
             <label class="flex items-center gap-2 cursor-pointer">
               <input type="checkbox" id="cfg-enabled" class="w-4 h-4">
@@ -277,6 +331,35 @@
               <input type="number" id="cfg-interval-max" class="form-input" min="1" max="1440">
             </div>
           </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div class="form-group">
+              <label class="form-label">每轮最少访问次数</label>
+              <input type="number" id="cfg-rounds-min" class="form-input" min="1" max="100" value="1">
+            </div>
+            <div class="form-group">
+              <label class="form-label">每轮最多访问次数</label>
+              <input type="number" id="cfg-rounds-max" class="form-input" min="1" max="100" value="1">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">轮次间隔（秒）</label>
+            <input type="number" id="cfg-rounds-interval" class="form-input" min="0" max="3600" value="3">
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div class="form-group">
+              <label class="form-label">总巡检次数下限（0=不限）</label>
+              <input type="number" id="cfg-total-min" class="form-input" min="0" max="100000" value="0">
+            </div>
+            <div class="form-group">
+              <label class="form-label">总巡检次数上限（0=不限）</label>
+              <input type="number" id="cfg-total-max" class="form-input" min="0" max="100000" value="0">
+            </div>
+          </div>
+        </div>
+
+        <!-- 搜索配置 -->
+        <div class="card p-5">
+          <h3 class="font-semibold text-slate-800 mb-4 flex items-center gap-2"><span>🔎</span> 搜索配置</h3>
           <div class="form-group">
             <label class="form-label">默认搜索引擎</label>
             <select id="cfg-engine" class="form-select">
@@ -286,11 +369,69 @@
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label">IndexNow 推送间隔（小时）</label>
-            <input type="number" id="cfg-indexnow" class="form-input" min="1" max="168">
+            <label class="form-label flex items-center justify-between">
+              <span>项目搜索关键词</span>
+              <button type="button" class="btn btn-sm btn-gray" onclick="addKeywordRow()">+ 添加项目</button>
+            </label>
+            <div id="cfg-keywords-body" class="border rounded-lg overflow-hidden">
+              <table>
+                <thead><tr><th style="width:35%">项目</th><th>关键词（逗号分隔）</th><th style="width:60px"></th></tr></thead>
+                <tbody id="cfg-keywords-tbody"></tbody>
+              </table>
+            </div>
+            <p class="text-xs text-slate-400 mt-1">每个项目可配置多个搜索关键词，逗号分隔。</p>
           </div>
-          <button class="btn btn-primary" onclick="saveConfig()">💾 保存配置</button>
         </div>
+
+        <!-- 访问模拟配置 -->
+        <div class="card p-5">
+          <h3 class="font-semibold text-slate-800 mb-4 flex items-center gap-2"><span>🚶</span> 访问模拟配置</h3>
+          <div class="grid grid-cols-2 gap-4">
+            <div class="form-group">
+              <label class="form-label">访客访问最小间隔（分钟）</label>
+              <input type="number" id="cfg-visitor-min" class="form-input" min="1" max="1440" value="20">
+            </div>
+            <div class="form-group">
+              <label class="form-label">访客访问最大间隔（分钟）</label>
+              <input type="number" id="cfg-visitor-max" class="form-input" min="1" max="1440" value="45">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">默认每项目访问次数</label>
+            <input type="number" id="cfg-default-visit" class="form-input" min="1" max="100" value="5">
+          </div>
+          <div class="form-group">
+            <label class="form-label">项目单独访问次数</label>
+            <div class="border rounded-lg overflow-hidden">
+              <table>
+                <thead><tr><th>项目名称</th><th style="width:160px">访问次数</th></tr></thead>
+                <tbody id="cfg-visit-counts-tbody"></tbody>
+              </table>
+            </div>
+            <p class="text-xs text-slate-400 mt-1">留空或 0 表示使用默认值。</p>
+          </div>
+        </div>
+
+        <!-- IndexNow 配置 -->
+        <div class="card p-5">
+          <h3 class="font-semibold text-slate-800 mb-4 flex items-center gap-2"><span>🚀</span> IndexNow 配置</h3>
+          <div class="form-group">
+            <label class="form-label">推送间隔（小时）</label>
+            <input type="number" id="cfg-indexnow" class="form-input" min="1" max="168" value="24">
+          </div>
+          <div class="form-group">
+            <label class="form-label">IndexNow Key</label>
+            <input type="password" id="cfg-indexnow-key" class="form-input" placeholder="留空则不修改" autocomplete="new-password">
+          </div>
+          <button class="btn btn-success" onclick="pushIndexNow()">🚀 立即推送</button>
+        </div>
+      </div>
+
+      <!-- 底部固定保存栏 -->
+      <div class="fixed bottom-0 left-52 right-0 bg-white/90 backdrop-blur border-t border-slate-200 px-6 py-3 flex items-center justify-end gap-3 z-20">
+        <span class="text-xs text-slate-400 mr-auto">修改后请点击保存</span>
+        <button class="btn btn-gray" onclick="loadConfigForm()">↻ 重置</button>
+        <button class="btn btn-primary" onclick="saveConfig()">💾 保存配置</button>
       </div>
     </div>
 
@@ -500,6 +641,36 @@
   </div>
 </div>
 
+
+<!-- 添加/编辑 视频弹窗 -->
+<div id="video-modal" class="modal-overlay" style="display:none">
+  <div class="modal">
+    <div class="p-5 border-b flex items-center justify-between">
+      <h3 class="font-semibold text-lg" id="video-modal-title">添加视频</h3>
+      <button class="text-slate-400 hover:text-slate-600 text-xl" onclick="closeModal('video-modal')">&times;</button>
+    </div>
+    <div class="p-5">
+      <input type="hidden" id="video-original-name">
+      <div class="form-group">
+        <label class="form-label">视频名称</label>
+        <input type="text" id="video-name" class="form-input" placeholder="例如：首页宣传视频">
+      </div>
+      <div class="form-group">
+        <label class="form-label">视频 URL</label>
+        <input type="text" id="video-url" class="form-input" placeholder="https://...">
+      </div>
+      <div class="form-group">
+        <label class="form-label">播放次数</label>
+        <input type="number" id="video-play-count" class="form-input" value="5" min="1" max="999">
+      </div>
+    </div>
+    <div class="p-5 border-t flex justify-end gap-2">
+      <button class="btn btn-gray" onclick="closeModal('video-modal')">取消</button>
+      <button class="btn btn-primary" onclick="saveVideo()">保存</button>
+    </div>
+  </div>
+</div>
+
 <!-- Toast 容器 -->
 <div id="toast-container"></div>
 
@@ -522,6 +693,7 @@ document.querySelectorAll('.sidebar-item').forEach(item => {
     if (page === 'dashboard') loadDashboard();
     if (page === 'nodes') loadNodes();
     if (page === 'checkers') loadCheckers();
+    if (page === 'videos') { loadVideoConfig(); loadVideoStatus(); }
     if (page === 'projects') loadProjects();
     if (page === 'config') loadConfigForm();
     if (page === 'results') loadResults();
@@ -1069,15 +1241,111 @@ async function deleteProject(name) {
 }
 
 // ========== 巡检配置 ==========
+let _configCache = null;
+let _configProjects = [];
+
 async function loadConfigForm() {
-  const cfg = await api('/api/config');
-  document.getElementById('cfg-enabled').checked = cfg.inspection_enabled;
-  document.getElementById('cfg-start').value = cfg.time_range?.start || '00:00';
-  document.getElementById('cfg-end').value = cfg.time_range?.end || '23:59';
-  document.getElementById('cfg-interval-min').value = cfg.interval_min;
-  document.getElementById('cfg-interval-max').value = cfg.interval_max;
-  document.getElementById('cfg-engine').value = cfg.search_engine;
-  document.getElementById('cfg-indexnow').value = cfg.indexnow_interval_hours || 24;
+  try {
+    const [cfg, pdata] = await Promise.all([
+      api('/api/config'),
+      api('/api/projects').catch(() => ({ projects: [] })),
+    ]);
+    _configCache = cfg;
+    _configProjects = pdata.projects || [];
+
+    document.getElementById('cfg-enabled').checked = !!cfg.inspection_enabled;
+    document.getElementById('cfg-start').value = cfg.time_range?.start || '00:00';
+    document.getElementById('cfg-end').value = cfg.time_range?.end || '23:59';
+    document.getElementById('cfg-interval-min').value = cfg.interval_min ?? 5;
+    document.getElementById('cfg-interval-max').value = cfg.interval_max ?? 15;
+    document.getElementById('cfg-rounds-min').value = cfg.rounds_min ?? 1;
+    document.getElementById('cfg-rounds-max').value = cfg.rounds_max ?? 1;
+    document.getElementById('cfg-rounds-interval').value = cfg.rounds_interval_seconds ?? 3;
+    document.getElementById('cfg-total-min').value = cfg.total_inspections_min ?? 0;
+    document.getElementById('cfg-total-max').value = cfg.total_inspections_max ?? 0;
+    document.getElementById('cfg-engine').value = cfg.search_engine || 'baidu';
+    document.getElementById('cfg-indexnow').value = cfg.indexnow_interval_hours ?? 24;
+    // 安全字段：不回显明文 key，留空表示不修改
+    document.getElementById('cfg-indexnow-key').value = '';
+    document.getElementById('cfg-visitor-min').value = cfg.visitor_interval_min ?? 20;
+    document.getElementById('cfg-visitor-max').value = cfg.visitor_interval_max ?? 45;
+    document.getElementById('cfg-default-visit').value = cfg.default_visit_count ?? 5;
+
+    renderKeywordRows(cfg.project_search_keywords || {});
+    renderVisitCountRows(cfg.project_visit_counts || {});
+  } catch (e) {}
+}
+
+function renderKeywordRows(keywords) {
+  const tbody = document.getElementById('cfg-keywords-tbody');
+  const names = new Set([...(_configProjects.map(p => p.name)), ...Object.keys(keywords)]);
+  if (!names.size) {
+    tbody.innerHTML = '<tr><td colspan="3" class="text-center text-slate-400 py-3">暂无项目，请先在项目管理中添加</td></tr>';
+    return;
+  }
+  tbody.innerHTML = Array.from(names).map(name => {
+    const kws = (keywords[name] || []).join(', ');
+    return `<tr>
+      <td><select class="form-select kw-project" style="padding:6px 10px">
+        ${Array.from(names).map(n => `<option value="${n}" ${n === name ? 'selected' : ''}>${n}</option>`).join('')}
+      </select></td>
+      <td><input type="text" class="form-input kw-keywords" value="${kws}" placeholder="关键词1, 关键词2" style="padding:6px 10px"></td>
+      <td><button type="button" class="btn btn-sm btn-danger" onclick="this.closest('tr').remove()">删除</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function addKeywordRow() {
+  const tbody = document.getElementById('cfg-keywords-tbody');
+  if (!_configProjects.length) return toast('请先添加项目', 'warning');
+  const names = _configProjects.map(p => p.name);
+  const tr = document.createElement('tr');
+  tr.innerHTML = `<td><select class="form-select kw-project" style="padding:6px 10px">
+      ${names.map(n => `<option value="${n}">${n}</option>`).join('')}
+    </select></td>
+    <td><input type="text" class="form-input kw-keywords" placeholder="关键词1, 关键词2" style="padding:6px 10px"></td>
+    <td><button type="button" class="btn btn-sm btn-danger" onclick="this.closest('tr').remove()">删除</button></td>`;
+  tbody.appendChild(tr);
+}
+
+function renderVisitCountRows(visitCounts) {
+  const tbody = document.getElementById('cfg-visit-counts-tbody');
+  if (!_configProjects.length) {
+    tbody.innerHTML = '<tr><td colspan="2" class="text-center text-slate-400 py-3">暂无项目</td></tr>';
+    return;
+  }
+  tbody.innerHTML = _configProjects.map(p => {
+    const v = visitCounts[p.name];
+    return `<tr>
+      <td>${p.name}</td>
+      <td><input type="number" min="0" max="999" class="form-input visit-count" data-project="${p.name}" value="${v != null ? v : 0}" style="padding:6px 10px"></td>
+    </tr>`;
+  }).join('');
+}
+
+function collectKeywords() {
+  const rows = document.querySelectorAll('#cfg-keywords-tbody tr');
+  const result = {};
+  rows.forEach(tr => {
+    const sel = tr.querySelector('.kw-project');
+    const inp = tr.querySelector('.kw-keywords');
+    if (!sel || !inp) return;
+    const name = sel.value.trim();
+    if (!name) return;
+    const kws = inp.value.split(',').map(s => s.trim()).filter(Boolean);
+    if (kws.length) result[name] = kws;
+  });
+  return result;
+}
+
+function collectVisitCounts() {
+  const result = {};
+  document.querySelectorAll('.visit-count').forEach(inp => {
+    const name = inp.dataset.project;
+    const v = parseInt(inp.value);
+    if (!isNaN(v) && v > 0) result[name] = v;
+  });
+  return result;
 }
 
 async function saveConfig() {
@@ -1089,11 +1357,178 @@ async function saveConfig() {
     },
     interval_min: parseInt(document.getElementById('cfg-interval-min').value),
     interval_max: parseInt(document.getElementById('cfg-interval-max').value),
+    rounds_min: parseInt(document.getElementById('cfg-rounds-min').value),
+    rounds_max: parseInt(document.getElementById('cfg-rounds-max').value),
+    rounds_interval_seconds: parseInt(document.getElementById('cfg-rounds-interval').value),
+    total_inspections_min: parseInt(document.getElementById('cfg-total-min').value),
+    total_inspections_max: parseInt(document.getElementById('cfg-total-max').value),
     search_engine: document.getElementById('cfg-engine').value,
     indexnow_interval_hours: parseInt(document.getElementById('cfg-indexnow').value),
+    visitor_interval_min: parseInt(document.getElementById('cfg-visitor-min').value),
+    visitor_interval_max: parseInt(document.getElementById('cfg-visitor-max').value),
+    default_visit_count: parseInt(document.getElementById('cfg-default-visit').value),
+    project_search_keywords: collectKeywords(),
+    project_visit_counts: collectVisitCounts(),
   };
+  const keyVal = document.getElementById('cfg-indexnow-key').value;
+  if (keyVal) body.indexnow_key = keyVal;
   await api('/api/config', { method: 'POST', body: JSON.stringify(body) });
   toast('配置已保存');
+}
+
+// ========== 视频播放管理 ==========
+let videoList = [];
+let videoStatusTimer = null;
+
+async function loadVideoConfig() {
+  try {
+    const data = await api('/api/video-config');
+    videoList = data.videos || [];
+    renderVideoTable();
+  } catch (e) {}
+}
+
+function renderVideoTable() {
+  const tbody = document.getElementById('videos-tbody');
+  if (!videoList.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-slate-400 py-6">暂无视频配置，点击右上角添加</td></tr>';
+    return;
+  }
+  tbody.innerHTML = videoList.map((v, i) => {
+    const st = v.last_status || 'idle';
+    let badge = '<span class="badge badge-gray">未开始</span>';
+    if (st === 'success') badge = '<span class="badge badge-green">✅ 成功</span>';
+    else if (st === 'failed' || st === 'error') badge = `<span class="badge badge-red" title="${(v.last_error || '').replace(/"/g, '&quot;')}">❌ 失败</span>`;
+    else if (st === 'running' || st === 'playing') badge = '<span class="badge badge-blue">▶ 播放中</span>';
+    return `<tr>
+      <td class="font-medium">${v.name}</td>
+      <td class="text-slate-500 text-xs" style="max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${v.url}">${v.url}</td>
+      <td>${v.play_count ?? 5}</td>
+      <td>${badge}${v.last_error ? `<div class="text-xs text-red-500 mt-1" style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${v.last_error.replace(/"/g, '&quot;')}">${v.last_error}</div>` : ''}</td>
+      <td>
+        <button class="btn btn-sm btn-gray" onclick="editVideo(${i})">编辑</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteVideo(${i})">删除</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function showVideoModal() {
+  document.getElementById('video-modal-title').textContent = '添加视频';
+  document.getElementById('video-original-name').value = '';
+  document.getElementById('video-name').value = '';
+  document.getElementById('video-url').value = '';
+  document.getElementById('video-play-count').value = 5;
+  openModal('video-modal');
+}
+
+function editVideo(idx) {
+  const v = videoList[idx];
+  if (!v) return;
+  document.getElementById('video-modal-title').textContent = '编辑视频';
+  document.getElementById('video-original-name').value = v.name;
+  document.getElementById('video-name').value = v.name;
+  document.getElementById('video-url').value = v.url;
+  document.getElementById('video-play-count').value = v.play_count ?? 5;
+  openModal('video-modal');
+}
+
+async function saveVideo() {
+  const name = document.getElementById('video-name').value.trim();
+  const url = document.getElementById('video-url').value.trim();
+  const play_count = parseInt(document.getElementById('video-play-count').value) || 5;
+  const original = document.getElementById('video-original-name').value;
+  if (!name || !url) return toast('名称和URL不能为空', 'warning');
+
+  // 构造新列表（若编辑则替换旧项）
+  let videos;
+  let deleteList = [];
+  if (original && original !== name) {
+    videos = videoList.filter(v => v.name !== original).map(v => ({ name: v.name, url: v.url, play_count: v.play_count ?? 5 }));
+    videos.push({ name, url, play_count });
+    deleteList = [original];
+  } else {
+    const others = videoList.filter(v => v.name !== name).map(v => ({ name: v.name, url: v.url, play_count: v.play_count ?? 5 }));
+    videos = [...others, { name, url, play_count }];
+  }
+
+  await api('/api/video-config', {
+    method: 'POST',
+    body: JSON.stringify({ videos, delete: deleteList }),
+  });
+  toast('视频配置已保存');
+  closeModal('video-modal');
+  loadVideoConfig();
+}
+
+async function deleteVideo(idx) {
+  const v = videoList[idx];
+  if (!v) return;
+  if (!confirm(`确定删除视频「${v.name}」？`)) return;
+  const videos = videoList.filter((_, i) => i !== idx).map(x => ({ name: x.name, url: x.url, play_count: x.play_count ?? 5 }));
+  await api('/api/video-config', {
+    method: 'POST',
+    body: JSON.stringify({ videos, delete: [v.name] }),
+  });
+  toast('已删除');
+  loadVideoConfig();
+}
+
+async function loadVideoStatus() {
+  try {
+    const data = await api('/api/video-status');
+    const videos = data.videos || {};
+    // 合并状态到 videoList
+    videoList.forEach(v => {
+      const st = videos[v.name];
+      if (st) {
+        v.last_status = st.status;
+        v.last_error = st.error;
+      }
+    });
+    renderVideoTable();
+    updateVideoRunBadge('sync', data.sync_running);
+    updateVideoRunBadge('async', data.async_running);
+  } catch (e) {}
+}
+
+function updateVideoRunBadge(type, running) {
+  const badge = document.getElementById('video-' + type + '-badge');
+  const btnStart = document.getElementById('btn-' + type + '-start');
+  const btnStop = document.getElementById('btn-' + type + '-stop');
+  if (!badge) return;
+  if (running) {
+    badge.className = 'badge badge-green';
+    badge.textContent = '● 运行中';
+    if (btnStart) btnStart.disabled = true;
+    if (btnStop) btnStop.disabled = false;
+  } else {
+    badge.className = 'badge badge-gray';
+    badge.textContent = '未开始';
+    if (btnStart) btnStart.disabled = false;
+    if (btnStop) btnStop.disabled = true;
+  }
+}
+
+async function videoControl(type, action) {
+  try {
+    if (action === 'start') {
+      await api('/api/video-start', { method: 'POST', body: JSON.stringify({ type }) });
+      toast((type === 'sync' ? '同步' : '异步') + '视频访问已启动');
+    } else {
+      await api('/api/video-stop', { method: 'POST', body: JSON.stringify({ type }) });
+      toast((type === 'sync' ? '同步' : '异步') + '视频访问已停止');
+    }
+    setTimeout(loadVideoStatus, 500);
+  } catch (e) {}
+}
+
+function startVideoStatusAutoRefresh() {
+  if (videoStatusTimer) clearInterval(videoStatusTimer);
+  videoStatusTimer = setInterval(() => {
+    const active = document.querySelector('.page.active');
+    if (active && active.id === 'page-videos') loadVideoStatus();
+  }, 10000);
 }
 
 // ========== 检测结果 ==========
@@ -1208,7 +1643,9 @@ async function init() {
     if (active === 'page-dashboard') loadDashboard();
     if (active === 'page-nodes') loadNodes();
     if (active === 'page-checkers') loadCheckers();
+    if (active === 'page-videos') loadVideoStatus();
   }, 15000);
+  startVideoStatusAutoRefresh();
 }
 
 init();
