@@ -133,7 +133,16 @@ def load_projects() -> list[dict]:
         _save_json(PROJECTS_FILE, DEFAULT_PROJECTS)
         logger.info(f"[Config] 已写入默认 {len(DEFAULT_PROJECTS)} 个项目到 {PROJECTS_FILE}")
         return list(DEFAULT_PROJECTS)
-    return _load_json(PROJECTS_FILE, list(DEFAULT_PROJECTS))
+    projects = _load_json(PROJECTS_FILE, list(DEFAULT_PROJECTS))
+    # 兼容旧数据：确保每个项目都有 check_count 字段
+    changed = False
+    for p in projects:
+        if "check_count" not in p:
+            p["check_count"] = 1
+            changed = True
+    if changed:
+        _save_json(PROJECTS_FILE, projects)
+    return projects
 
 
 def save_projects(projects: list[dict]):
@@ -223,11 +232,6 @@ class RuntimeConfig:
         self.time_range = {"start": "00:00", "end": "23:59"}
         self.interval_min = 30
         self.interval_max = 30
-        self.rounds_min = 1
-        self.rounds_max = 1
-        self.rounds_interval_seconds = 3
-        self.total_inspections_min = 0
-        self.total_inspections_max = 0
         self.search_engine = "baidu"
         self.project_search_keywords = _default_search_keywords()
         self.visitor_interval_min = 20
@@ -270,8 +274,6 @@ class RuntimeConfig:
             return
         for key in (
             "inspection_enabled", "time_range", "interval_min", "interval_max",
-            "rounds_min", "rounds_max", "rounds_interval_seconds",
-            "total_inspections_min", "total_inspections_max",
             "search_engine", "project_search_keywords",
             "visitor_interval_min", "visitor_interval_max",
             "default_visit_count", "project_visit_counts",
@@ -291,11 +293,6 @@ class RuntimeConfig:
             "time_range": self.time_range,
             "interval_min": self.interval_min,
             "interval_max": self.interval_max,
-            "rounds_min": self.rounds_min,
-            "rounds_max": self.rounds_max,
-            "rounds_interval_seconds": self.rounds_interval_seconds,
-            "total_inspections_min": self.total_inspections_min,
-            "total_inspections_max": self.total_inspections_max,
             "search_engine": self.search_engine,
             "project_search_keywords": self.project_search_keywords,
             "visitor_interval_min": self.visitor_interval_min,

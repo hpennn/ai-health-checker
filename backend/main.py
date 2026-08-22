@@ -81,8 +81,6 @@ class ConfigUpdateRequest(BaseModel):
     time_range: Optional[TimeRange] = None
     interval_min: Optional[int] = Field(default=None, ge=1, le=1440)
     interval_max: Optional[int] = Field(default=None, ge=1, le=1440)
-    rounds_min: Optional[int] = Field(default=None, ge=1, le=10)
-    rounds_max: Optional[int] = Field(default=None, ge=1, le=10)
     search_engine: Optional[str] = None
     visitor_interval_min: Optional[int] = Field(default=None, ge=1, le=1440)
     visitor_interval_max: Optional[int] = Field(default=None, ge=1, le=1440)
@@ -122,7 +120,7 @@ class NodeUpdateRequest(BaseModel):
 # Checker 模型
 class CheckerCreateRequest(BaseModel):
     name: str
-    type: str  # sync / async / browser
+    type: str  # sync / async / browser / video
     node_id: str = "builtin"
     enabled: bool = True
     interval_min: int = 5
@@ -133,8 +131,8 @@ class CheckerCreateRequest(BaseModel):
     @field_validator("type")
     @classmethod
     def validate_type(cls, v):
-        if v not in ("sync", "async", "browser"):
-            raise ValueError("type 必须是 sync、async 或 browser")
+        if v not in ("sync", "async", "browser", "video"):
+            raise ValueError("type 必须是 sync、async、browser 或 video")
         return v
 
 
@@ -156,6 +154,7 @@ class ProjectRequest(BaseModel):
     category: str = "工具"
     sub_paths: list[str] = Field(default_factory=list)
     is_spa: bool = False
+    check_count: int = Field(default=1, ge=1, le=100)
 
 
 class NodeResultRequest(BaseModel):

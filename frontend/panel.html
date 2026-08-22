@@ -281,6 +281,23 @@
           </table>
         </div>
       </div>
+
+      <!-- 视频播放检查器 -->
+      <div class="card p-5 mt-5">
+        <div class="flex items-center justify-between mb-4">
+          <div>
+            <h3 class="font-semibold text-slate-800 flex items-center gap-2"><span>🎬</span> 视频播放检查器</h3>
+            <p class="text-xs text-slate-500 mt-1">使用浏览器自动播放项目页面中的视频，需分配给本地节点</p>
+          </div>
+          <button class="btn btn-primary" onclick="showVideoCheckerModal()">+ 添加视频检查器</button>
+        </div>
+        <div class="overflow-x-auto">
+          <table>
+            <thead><tr><th>名称</th><th>节点</th><th>间隔(分)</th><th>项目数</th><th>状态</th><th>操作</th></tr></thead>
+            <tbody id="video-checkers-tbody"></tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
     <!-- ====== 项目管理 ====== -->
@@ -292,7 +309,7 @@
         </div>
         <div class="overflow-x-auto">
           <table>
-            <thead><tr><th>名称</th><th>URL</th><th>分类</th><th>SPA</th><th>子路径数</th><th>操作</th></tr></thead>
+            <thead><tr><th>名称</th><th>URL</th><th>分类</th><th>SPA</th><th>子路径数</th><th>检查次数</th><th>操作</th></tr></thead>
             <tbody id="projects-tbody"></tbody>
           </table>
         </div>
@@ -329,30 +346,6 @@
             <div class="form-group">
               <label class="form-label">最大检查间隔（分钟）</label>
               <input type="number" id="cfg-interval-max" class="form-input" min="1" max="1440">
-            </div>
-          </div>
-          <div class="grid grid-cols-2 gap-4">
-            <div class="form-group">
-              <label class="form-label">每轮最少访问次数</label>
-              <input type="number" id="cfg-rounds-min" class="form-input" min="1" max="100" value="1">
-            </div>
-            <div class="form-group">
-              <label class="form-label">每轮最多访问次数</label>
-              <input type="number" id="cfg-rounds-max" class="form-input" min="1" max="100" value="1">
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">轮次间隔（秒）</label>
-            <input type="number" id="cfg-rounds-interval" class="form-input" min="0" max="3600" value="3">
-          </div>
-          <div class="grid grid-cols-2 gap-4">
-            <div class="form-group">
-              <label class="form-label">总巡检次数下限（0=不限）</label>
-              <input type="number" id="cfg-total-min" class="form-input" min="0" max="100000" value="0">
-            </div>
-            <div class="form-group">
-              <label class="form-label">总巡检次数上限（0=不限）</label>
-              <input type="number" id="cfg-total-max" class="form-input" min="0" max="100000" value="0">
             </div>
           </div>
           <div class="form-group">
@@ -568,27 +561,6 @@
           <input type="checkbox" id="chk-browser-inner" checked class="w-4 h-4">
           <span class="text-sm">访问内页</span>
         </label>
-        <div class="border-t mt-3 pt-3">
-          <label class="flex items-center gap-2 cursor-pointer mb-2">
-            <input type="checkbox" id="chk-browser-video" class="w-4 h-4" onchange="onVideoToggle()">
-            <span class="text-sm font-medium">🎬 启用视频播放</span>
-          </label>
-          <div id="chk-video-config" style="display:none" class="grid grid-cols-3 gap-3 mt-2">
-            <div class="form-group" style="margin:0">
-              <label class="form-label">播放个数</label>
-              <input type="number" id="chk-video-count" class="form-input" value="1" min="1" max="10">
-            </div>
-            <div class="form-group" style="margin:0">
-              <label class="form-label">最短(秒)</label>
-              <input type="number" id="chk-video-min" class="form-input" value="15" min="5" max="300">
-            </div>
-            <div class="form-group" style="margin:0">
-              <label class="form-label">最长(秒)</label>
-              <input type="number" id="chk-video-max" class="form-input" value="45" min="5" max="600">
-            </div>
-          </div>
-          <p class="text-xs text-slate-400 mt-1">自动检测页面 video 元素并播放，模拟真实用户停留</p>
-        </div>
       </div>
     </div>
     <div class="p-5 border-t flex justify-end gap-2">
@@ -627,6 +599,11 @@
         <input type="checkbox" id="proj-spa" class="w-4 h-4">
         <span class="text-sm">SPA 站点（客户端路由）</span>
       </label>
+      <div class="form-group mt-3">
+        <label class="form-label">每轮检查次数</label>
+        <input type="number" id="proj-check-count" class="form-input" min="1" max="100" value="1">
+        <p class="text-xs text-slate-400 mt-1">每次巡检时该项目被检查/访问的次数</p>
+      </div>
     </div>
     <div class="p-5 border-t flex justify-end gap-2">
       <button class="btn btn-gray" onclick="closeModal('project-modal')">取消</button>
@@ -676,6 +653,65 @@
   </div>
 </div>
 
+<!-- 添加/编辑 视频检查器弹窗 -->
+<div id="video-checker-modal" class="modal-overlay" style="display:none">
+  <div class="modal">
+    <div class="p-5 border-b flex items-center justify-between">
+      <h3 class="font-semibold text-lg" id="vc-modal-title">添加视频检查器</h3>
+      <button class="text-slate-400 hover:text-slate-600 text-xl" onclick="closeModal('video-checker-modal')">&times;</button>
+    </div>
+    <div class="p-5 space-y-4">
+      <input type="hidden" id="vc-id">
+      <div class="form-group">
+        <label class="form-label">检查器名称</label>
+        <input type="text" id="vc-name" class="form-input" placeholder="例如：首页视频播放巡检">
+      </div>
+      <div class="grid grid-cols-2 gap-4">
+        <div class="form-group">
+          <label class="form-label">分配节点</label>
+          <select id="vc-node" class="form-select"></select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">批量创建</label>
+          <input type="number" id="vc-batch" class="form-input" value="1" min="1" max="10">
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-4">
+        <div class="form-group">
+          <label class="form-label">最小间隔（分钟）</label>
+          <input type="number" id="vc-interval-min" class="form-input" value="60" min="1" max="1440">
+        </div>
+        <div class="form-group">
+          <label class="form-label">最大间隔（分钟）</label>
+          <input type="number" id="vc-interval-max" class="form-input" value="120" min="1" max="1440">
+        </div>
+      </div>
+      <div class="grid grid-cols-3 gap-3">
+        <div class="form-group">
+          <label class="form-label">每页播放视频数</label>
+          <input type="number" id="vc-play-count" class="form-input" value="1" min="1" max="10">
+        </div>
+        <div class="form-group">
+          <label class="form-label">最短停留(秒)</label>
+          <input type="number" id="vc-duration-min" class="form-input" value="15" min="5" max="300">
+        </div>
+        <div class="form-group">
+          <label class="form-label">最长停留(秒)</label>
+          <input type="number" id="vc-duration-max" class="form-input" value="45" min="5" max="600">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">选择项目（勾选需要播放视频的站点）</label>
+        <div id="vc-projects" class="border rounded-lg p-3 max-h-48 overflow-y-auto grid grid-cols-2 gap-2"></div>
+      </div>
+    </div>
+    <div class="p-5 border-t flex justify-end gap-2">
+      <button class="btn btn-gray" onclick="closeModal('video-checker-modal')">取消</button>
+      <button class="btn btn-primary" onclick="saveVideoChecker()">保存</button>
+    </div>
+  </div>
+</div>
+
 <!-- Toast 容器 -->
 <div id="toast-container"></div>
 
@@ -698,7 +734,7 @@ document.querySelectorAll('.sidebar-item').forEach(item => {
     if (page === 'dashboard') loadDashboard();
     if (page === 'nodes') loadNodes();
     if (page === 'checkers') loadCheckers();
-    if (page === 'videos') { loadVideoConfig(); loadVideoStatus(); }
+    if (page === 'videos') { loadVideoConfig(); loadVideoStatus(); loadVideoCheckers(); }
     if (page === 'projects') loadProjects();
     if (page === 'config') loadConfigForm();
     if (page === 'results') loadResults();
@@ -967,7 +1003,7 @@ async function loadCheckers() {
     const [cdata, ndata] = await Promise.all([api('/api/checkers'), api('/api/nodes')]);
     allCheckers = cdata.checkers;
     allNodes = ndata.nodes;
-    const html = allCheckers.map(c => {
+    const html = allCheckers.filter(c => c.type !== 'video').map(c => {
       const rt = c.runtime || {};
       const node = allNodes.find(n => n.node_id === c.node_id);
       const nodeName = node ? node.name : c.node_id;
@@ -1010,11 +1046,6 @@ function onCheckerTypeChange() {
   }
 }
 
-function onVideoToggle() {
-  const enabled = document.getElementById('chk-browser-video').checked;
-  document.getElementById('chk-video-config').style.display = enabled ? 'grid' : 'none';
-}
-
 async function showAddCheckerModal() {
   document.getElementById('checker-modal-title').textContent = '添加检查器';
   document.getElementById('chk-id').value = '';
@@ -1025,11 +1056,6 @@ async function showAddCheckerModal() {
   document.getElementById('chk-type').value = 'sync';
   document.getElementById('chk-interval-min').value = 5;
   document.getElementById('chk-interval-max').value = 15;
-  document.getElementById('chk-browser-video').checked = false;
-  document.getElementById('chk-video-count').value = 1;
-  document.getElementById('chk-video-min').value = 15;
-  document.getElementById('chk-video-max').value = 45;
-  onVideoToggle();
   // 节点选项
   const nodeSelect = document.getElementById('chk-node');
   nodeSelect.innerHTML = allNodes.map(n => `<option value="${n.node_id}">${n.name}${n.is_builtin ? ' (内置)' : ''}</option>`).join('');
@@ -1069,11 +1095,6 @@ async function editChecker(id) {
     document.getElementById('chk-browser-headless').checked = cfg.headless !== false;
     document.getElementById('chk-browser-count').value = cfg.visit_count || 3;
     document.getElementById('chk-browser-inner').checked = cfg.visit_inner_pages !== false;
-    document.getElementById('chk-browser-video').checked = !!cfg.video_enabled;
-    document.getElementById('chk-video-count').value = cfg.video_play_count || 1;
-    document.getElementById('chk-video-min').value = cfg.video_duration_min || 15;
-    document.getElementById('chk-video-max').value = cfg.video_duration_max || 45;
-    onVideoToggle();
   }
   openModal('checker-modal');
 }
@@ -1092,10 +1113,6 @@ async function saveChecker() {
     config.headless = document.getElementById('chk-browser-headless').checked;
     config.visit_count = parseInt(document.getElementById('chk-browser-count').value);
     config.visit_inner_pages = document.getElementById('chk-browser-inner').checked;
-    config.video_enabled = document.getElementById('chk-browser-video').checked;
-    config.video_play_count = parseInt(document.getElementById('chk-video-count').value) || 1;
-    config.video_duration_min = parseInt(document.getElementById('chk-video-min').value) || 15;
-    config.video_duration_max = parseInt(document.getElementById('chk-video-max').value) || 45;
   }
 
   const typeName = { sync: '同步检测', async: '异步检测', browser: '浏览器检测' }[type] || type;
@@ -1179,6 +1196,7 @@ async function loadProjects() {
         <td>${p.category || '-'}</td>
         <td>${p.is_spa ? '<span class="badge badge-blue">SPA</span>' : '-'}</td>
         <td>${(p.sub_paths || []).length}</td>
+        <td><input type="number" min="1" max="100" value="${p.check_count ?? 1}" class="form-input" style="width:60px;padding:4px 8px" onchange="updateProjectCheckCount('${p.name}', this.value)"></td>
         <td>
           <button class="btn btn-sm btn-gray" onclick="editProject('${p.name}')">编辑</button>
           <button class="btn btn-sm btn-danger" onclick="deleteProject('${p.name}')">删除</button>
@@ -1197,6 +1215,8 @@ function showProjectModal() {
   document.getElementById('proj-category').value = '工具';
   document.getElementById('proj-subpaths').value = '';
   document.getElementById('proj-spa').checked = false;
+  const ccNew = document.getElementById('proj-check-count');
+  if (ccNew) ccNew.value = 1;
   openModal('project-modal');
 }
 
@@ -1210,7 +1230,23 @@ function editProject(name) {
   document.getElementById('proj-category').value = p.category || '';
   document.getElementById('proj-subpaths').value = (p.sub_paths || []).join(',');
   document.getElementById('proj-spa').checked = !!p.is_spa;
+  const ccEl = document.getElementById('proj-check-count');
+  if (ccEl) ccEl.value = p.check_count ?? 1;
   openModal('project-modal');
+}
+
+async function updateProjectCheckCount(name, value) {
+  const count = Math.max(1, Math.min(100, parseInt(value) || 1));
+  try {
+    const p = allProjects.find(x => x.name === name);
+    if (!p) return;
+    await api(`/api/projects/${encodeURIComponent(name)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ ...p, check_count: count, sub_paths: p.sub_paths || [] })
+    });
+    p.check_count = count;
+    toast(`「${name}」检查次数设为 ${count}`);
+  } catch (e) {}
 }
 
 async function saveProject() {
@@ -1223,6 +1259,7 @@ async function saveProject() {
     category: document.getElementById('proj-category').value,
     sub_paths: subpaths,
     is_spa: document.getElementById('proj-spa').checked,
+    check_count: parseInt(document.getElementById('proj-check-count')?.value) || 1,
   };
   if (!body.name || !body.url) return toast('名称和URL不能为空', 'warning');
   try {
@@ -1263,11 +1300,6 @@ async function loadConfigForm() {
     document.getElementById('cfg-end').value = cfg.time_range?.end || '23:59';
     document.getElementById('cfg-interval-min').value = cfg.interval_min ?? 5;
     document.getElementById('cfg-interval-max').value = cfg.interval_max ?? 15;
-    document.getElementById('cfg-rounds-min').value = cfg.rounds_min ?? 1;
-    document.getElementById('cfg-rounds-max').value = cfg.rounds_max ?? 1;
-    document.getElementById('cfg-rounds-interval').value = cfg.rounds_interval_seconds ?? 3;
-    document.getElementById('cfg-total-min').value = cfg.total_inspections_min ?? 0;
-    document.getElementById('cfg-total-max').value = cfg.total_inspections_max ?? 0;
     document.getElementById('cfg-engine').value = cfg.search_engine || 'baidu';
     document.getElementById('cfg-indexnow').value = cfg.indexnow_interval_hours ?? 24;
     // 安全字段：不回显明文 key，留空表示不修改
@@ -1363,11 +1395,6 @@ async function saveConfig() {
     },
     interval_min: parseInt(document.getElementById('cfg-interval-min').value),
     interval_max: parseInt(document.getElementById('cfg-interval-max').value),
-    rounds_min: parseInt(document.getElementById('cfg-rounds-min').value),
-    rounds_max: parseInt(document.getElementById('cfg-rounds-max').value),
-    rounds_interval_seconds: parseInt(document.getElementById('cfg-rounds-interval').value),
-    total_inspections_min: parseInt(document.getElementById('cfg-total-min').value),
-    total_inspections_max: parseInt(document.getElementById('cfg-total-max').value),
     search_engine: document.getElementById('cfg-engine').value,
     indexnow_interval_hours: parseInt(document.getElementById('cfg-indexnow').value),
     visitor_interval_min: parseInt(document.getElementById('cfg-visitor-min').value),
@@ -1536,6 +1563,144 @@ function startVideoStatusAutoRefresh() {
     const active = document.querySelector('.page.active');
     if (active && active.id === 'page-videos') loadVideoStatus();
   }, 10000);
+}
+
+// ========== 视频检查器 ==========
+async function loadVideoCheckers() {
+  try {
+    const data = await api('/api/checkers');
+    const vcs = (data.checkers || []).filter(c => c.type === 'video');
+    const tbody = document.getElementById('video-checkers-tbody');
+    if (!tbody) return;
+    if (!vcs.length) {
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center text-slate-400 py-4">暂无视频检查器，点击右上角添加</td></tr>';
+      return;
+    }
+    tbody.innerHTML = vcs.map(c => {
+      const nodeName = allNodes.find(n => n.node_id === c.node_id)?.name || c.node_id;
+      const running = c.runtime?.running;
+      const statusBadge = running
+        ? '<span class="badge badge-green">● 运行中</span>'
+        : (c.enabled ? '<span class="badge badge-gray">已停止</span>' : '<span class="badge badge-gray">已禁用</span>');
+      const projCount = (c.projects || []).length;
+      return `<tr>
+        <td class="font-medium">${c.name}</td>
+        <td>${nodeName}</td>
+        <td>${c.interval_min}-${c.interval_max}</td>
+        <td>${projCount}</td>
+        <td>${statusBadge}</td>
+        <td>
+          <button class="btn btn-sm ${running ? 'btn-danger' : 'btn-success'}" onclick="toggleVideoChecker('${c.id}', ${running ? 'false' : 'true'})">${running ? '停止' : '启动'}</button>
+          <button class="btn btn-sm btn-gray" onclick="editVideoChecker('${c.id}')">编辑</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteVideoChecker('${c.id}')">删除</button>
+        </td>
+      </tr>`;
+    }).join('');
+  } catch (e) {}
+}
+
+function showVideoCheckerModal() {
+  document.getElementById('vc-modal-title').textContent = '添加视频检查器';
+  document.getElementById('vc-id').value = '';
+  document.getElementById('vc-name').value = '';
+  document.getElementById('vc-batch').value = 1;
+  document.getElementById('vc-interval-min').value = 60;
+  document.getElementById('vc-interval-max').value = 120;
+  document.getElementById('vc-play-count').value = 1;
+  document.getElementById('vc-duration-min').value = 15;
+  document.getElementById('vc-duration-max').value = 45;
+  const nodeSelect = document.getElementById('vc-node');
+  nodeSelect.innerHTML = allNodes
+    .filter(n => n.node_id !== 'builtin' && n.capabilities?.has_browser)
+    .map(n => `<option value="${n.node_id}">${n.name}</option>`).join('');
+  const projDiv = document.getElementById('vc-projects');
+  projDiv.innerHTML = allProjects.map(p =>
+    `<label class="flex items-center gap-2 cursor-pointer text-sm"><input type="checkbox" value="${p.name}" class="vc-proj-cb"> ${p.name}</label>`
+  ).join('');
+  openModal('video-checker-modal');
+}
+
+async function editVideoChecker(id) {
+  const c = allCheckers.find(x => x.id === id);
+  if (!c) return;
+  document.getElementById('vc-modal-title').textContent = '编辑视频检查器';
+  document.getElementById('vc-id').value = id;
+  document.getElementById('vc-name').value = c.name;
+  document.getElementById('vc-batch').value = 1;
+  document.getElementById('vc-interval-min').value = c.interval_min;
+  document.getElementById('vc-interval-max').value = c.interval_max;
+  const cfg = c.config || {};
+  document.getElementById('vc-play-count').value = cfg.video_play_count || 1;
+  document.getElementById('vc-duration-min').value = cfg.video_duration_min || 15;
+  document.getElementById('vc-duration-max').value = cfg.video_duration_max || 45;
+  const nodeSelect = document.getElementById('vc-node');
+  nodeSelect.innerHTML = allNodes
+    .filter(n => n.node_id !== 'builtin' && n.capabilities?.has_browser)
+    .map(n => `<option value="${n.node_id}" ${n.node_id === c.node_id ? 'selected' : ''}>${n.name}</option>`).join('');
+  const projDiv = document.getElementById('vc-projects');
+  const selected = new Set(c.projects || []);
+  projDiv.innerHTML = allProjects.map(p =>
+    `<label class="flex items-center gap-2 cursor-pointer text-sm"><input type="checkbox" value="${p.name}" class="vc-proj-cb" ${selected.has(p.name) ? 'checked' : ''}> ${p.name}</label>`
+  ).join('');
+  openModal('video-checker-modal');
+}
+
+async function saveVideoChecker() {
+  const id = document.getElementById('vc-id').value;
+  const name = document.getElementById('vc-name').value.trim();
+  if (!name) return toast('请输入检查器名称', 'warning');
+  const projects = Array.from(document.querySelectorAll('.vc-proj-cb:checked')).map(cb => cb.value);
+  if (!projects.length) return toast('请至少选择一个项目', 'warning');
+  const body = {
+    name,
+    type: 'video',
+    node_id: document.getElementById('vc-node').value,
+    interval_min: parseInt(document.getElementById('vc-interval-min').value) || 60,
+    interval_max: parseInt(document.getElementById('vc-interval-max').value) || 120,
+    projects,
+    config: {
+      headless: true,
+      video_enabled: true,
+      video_play_count: parseInt(document.getElementById('vc-play-count').value) || 1,
+      video_duration_min: parseInt(document.getElementById('vc-duration-min').value) || 15,
+      video_duration_max: parseInt(document.getElementById('vc-duration-max').value) || 45,
+    }
+  };
+  try {
+    if (id) {
+      await api(`/api/checkers/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+      toast('视频检查器已更新');
+    } else {
+      const batch = parseInt(document.getElementById('vc-batch').value) || 1;
+      for (let i = 0; i < batch; i++) {
+        const b = { ...body, name: batch > 1 ? `${name}-${i+1}` : name };
+        await api('/api/checkers', { method: 'POST', body: JSON.stringify(b) });
+      }
+      toast(batch > 1 ? `已创建 ${batch} 个视频检查器` : '视频检查器已创建');
+    }
+    closeModal('video-checker-modal');
+    loadCheckers();
+    loadVideoCheckers();
+  } catch (e) {}
+}
+
+async function toggleVideoChecker(id, start) {
+  try {
+    await api(`/api/checkers/${id}/${start ? 'start' : 'stop'}`, { method: 'POST' });
+    toast(start ? '已启动' : '已停止');
+    loadCheckers();
+    loadVideoCheckers();
+  } catch (e) {}
+}
+
+async function deleteVideoChecker(id) {
+  if (!confirm('确定删除此视频检查器？')) return;
+  try {
+    await api(`/api/checkers/${id}`, { method: 'DELETE' });
+    toast('已删除');
+    loadCheckers();
+    loadVideoCheckers();
+  } catch (e) {}
 }
 
 // ========== 检测结果 ==========

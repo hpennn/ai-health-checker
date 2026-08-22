@@ -878,6 +878,13 @@ class NodeAgent:
             assigned = list(assigned)
         # 每次执行前随机打乱项目顺序，模拟真实用户行为
         random.shuffle(assigned)
+        # 项目级访问次数：根据每个项目的 check_count 展开列表
+        expanded = []
+        for proj in assigned:
+            cc = int(proj.get("check_count", 1))
+            for _ in range(max(1, cc)):
+                expanded.append(proj)
+        assigned = expanded
 
         now = time.time()
         state = self._checker_states.setdefault(checker_id, {"last_run": 0})
@@ -891,8 +898,8 @@ class NodeAgent:
             if elapsed < next_interval:
                 return
 
-        # browser 类型检查环境
-        if checker_type == "browser" and not self.env_info["capabilities"].get("chromium_installed"):
+        # browser/video 类型检查环境
+        if checker_type in ("browser", "video") and not self.env_info["capabilities"].get("chromium_installed"):
             log(f"[Task] {checker_id}: Chromium 未安装，跳过浏览器检测")
             return
 
@@ -900,14 +907,19 @@ class NodeAgent:
         log(f"[Task] 执行 {checker_type} checker: {checker_name} ({len(assigned)} 个项目)")
         results = []
 
-        if checker_type == "browser":
+        if checker_type in ("browser", "video"):
+            # video 类型强制开启视频播放
+            if checker_type == "video":
+                cfg = dict(cfg)
+                cfg["video_enabled"] = True
+                cfg.setdefault("video_play_count", 1)
+                cfg.setdefault("video_duration_min", 15)
+                cfg.setdefault("video_duration_max", 45)
             concurrency = max(1, min(5, self.browser_concurrency))
             if concurrency <= 1:
-                # 单浏览器实例顺序处理（保持原有行为）
                 log(f"  [Browser] 单浏览器模式，顺序处理 {len(assigned)} 个项目")
                 results = await self._browser_worker(assigned, cfg, checker_id, checker_name)
             else:
-                # 多浏览器并发：将项目分成 N 组，每组一个独立浏览器实例
                 n = min(concurrency, len(assigned))
                 groups = [[] for _ in range(n)]
                 for i, proj in enumerate(assigned):

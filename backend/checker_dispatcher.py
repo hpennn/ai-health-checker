@@ -47,9 +47,9 @@ class CheckerDispatcher:
             checker = await AsyncCheckerManager.create_checker(cfg)
             checker.start()
             self._builtin_instances[cid] = checker
-        elif ctype == "browser":
-            # builtin 不支持 browser
-            logger.warning(f"[Dispatcher] Browser checker {cid} 不能在 builtin 节点运行")
+        elif ctype in ("browser", "video"):
+            # builtin 不支持 browser/video
+            logger.warning(f"[Dispatcher] {ctype} checker {cid} 不能在 builtin 节点运行")
         logger.info(f"[Dispatcher] 启动 builtin checker: {cid} ({cfg.get('name')})")
 
     async def _stop_builtin_checker(self, checker_id: str):
