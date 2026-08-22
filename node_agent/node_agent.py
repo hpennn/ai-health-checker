@@ -125,6 +125,8 @@ def collect_env_info() -> dict:
                 base = os.environ.get("LOCALAPPDATA", "")
                 if base:
                     candidate_dirs.append(os.path.join(base, "ms-playwright"))
+                # 兜底：检查 Administrator 用户目录（System 账户运行时 LOCALAPPDATA 不同）
+                candidate_dirs.append(r"C:\Users\Administrator\AppData\Local\ms-playwright")
             elif sys.platform == "darwin":
                 candidate_dirs.append(os.path.expanduser("~/Library/Caches/ms-playwright"))
             else:
