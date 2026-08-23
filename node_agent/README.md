@@ -62,9 +62,37 @@ python node_agent.py --server http://47.113.216.237:8700 --name 家里电脑
 # browser checker 的 headless 配置由面板上的 checker 配置控制
 ```
 
+## Windows 一键安装（推荐）
+
+以管理员身份运行 `install_windows.bat`，自动完成：
+1. 安装 Python 依赖
+2. 安装 Playwright Chromium
+3. 创建开机自启的看门狗计划任务（以 SYSTEM 账户运行）
+
+安装后节点会在后台常驻，崩溃自动重启。
+
 ## Windows 后台运行
 
-### 方法一：最小化窗口
+### 看门狗（推荐）
+
+`watchdog.py` 是一个常驻守护进程，每 30 秒检查 node_agent.py 是否存活，
+挂了立即重启。使用 psutil 检测进程（避免 wmic 超时问题）。
+
+```bash
+# 直接运行
+python watchdog.py
+
+# 注册为开机计划任务（以 SYSTEM 身份，无需登录）
+schtasks /create /tn "HealthCheckerWatchdog" /tr "python C:\path\to\watchdog.py" /sc onstart /ru System /f
+schtasks /run /tn "HealthCheckerWatchdog"
+```
+
+环境变量（可选）：
+- `NODE_SERVER`：服务器地址
+- `NODE_NAME`：节点名称
+- `NODE_PYTHON`：Python 可执行文件路径
+
+### 最小化窗口运行
 
 ```batch
 start /min python node_agent.py --server http://47.113.216.237:8700

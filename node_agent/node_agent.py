@@ -144,25 +144,40 @@ def collect_env_info() -> dict:
         "installed_packages": [],
     }
 
-    # 已安装 pip 包
+    # 已安装包检测（优先用 importlib.metadata，避免 pip 子进程在 System 账户下超时）
+    packages = []
     try:
-        result = subprocess.run(
-            [sys.executable, "-m", "pip", "list", "--format=json"],
-            capture_output=True, text=True, timeout=30,
-            encoding="utf-8", errors="replace",
-        )
-        if result.returncode == 0:
-            packages = json.loads(result.stdout)
-            info["installed_packages"] = [
-                f"{p['name']}=={p['version']}" for p in packages
-            ]
-            # 检查 playwright
-            for p in packages:
-                if p["name"].lower() == "playwright":
-                    info["capabilities"]["playwright_version"] = p["version"]
-                    info["capabilities"]["has_browser"] = True
+        from importlib.metadata import distributions
+        for dist in distributions():
+            try:
+                name = dist.metadata["Name"]
+                version = dist.version
+                if name and version:
+                    packages.append({"name": name, "version": version})
+            except Exception:
+                continue
     except Exception as e:
-        log(f"[Env] 获取 pip 包列表失败: {e}")
+        log(f"[Env] importlib.metadata 失败: {e}，尝试 pip list")
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "pip", "list", "--format=json"],
+                capture_output=True, text=True, timeout=10,
+                encoding="utf-8", errors="replace",
+            )
+            if result.returncode == 0:
+                packages = json.loads(result.stdout)
+        except Exception as e2:
+            log(f"[Env] pip list 也失败: {e2}")
+
+    if packages:
+        info["installed_packages"] = [
+            f"{p['name']}=={p['version']}" for p in packages
+        ]
+        for p in packages:
+            if p["name"].lower() == "playwright":
+                info["capabilities"]["playwright_version"] = p["version"]
+                info["capabilities"]["has_browser"] = True
+                break
 
     # 检查 Chromium 是否安装（多策略检测，不依赖 playwright 内部 API）
     if info["capabilities"]["playwright_version"]:
@@ -197,21 +212,6 @@ def collect_env_info() -> dict:
                     break
         except Exception as e:
             log(f"[Env] Chromium 目录检测失败: {e}")
-
-        # 方法2: 用 playwright install --dry-run 兜底
-        if not chromium_installed:
-            try:
-                result = subprocess.run(
-                    [sys.executable, "-m", "playwright", "install", "--dry-run", "chromium"],
-                    capture_output=True, text=True, timeout=15,
-                    encoding="utf-8", errors="replace",
-                )
-                output = ((result.stdout or "") + (result.stderr or "")).lower()
-                if "already installed" in output or "is installed" in output:
-                    chromium_installed = True
-                    log("[Env] dry-run 检测到 Chromium 已安装")
-            except Exception as e:
-                log(f"[Env] Chromium dry-run 检测失败: {e}")
 
         info["capabilities"]["chromium_installed"] = chromium_installed
 
