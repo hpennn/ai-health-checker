@@ -56,6 +56,56 @@ def log(msg: str):
     print(f"[{ts}] {msg}", flush=True)
 
 
+# ========== 真实用户模拟 ==========
+_CN_IP_PREFIXES = [
+    "113.108", "113.111", "14.23", "14.116", "14.150", "183.60", "183.232",
+    "59.41", "59.42", "119.147", "121.32", "121.10", "218.17", "218.13",
+    "61.144", "61.146", "113.104", "113.106", "113.118", "183.0", "183.3",
+    "61.158", "61.163", "61.168", "61.182", "112.97", "112.100", "220.194",
+    "221.130", "221.196", "221.204", "221.216", "111.13", "111.60", "111.62",
+    "112.80", "112.84", "112.86", "112.90", "112.94", "218.249", "218.25",
+    "117.136", "117.144", "117.150", "120.196", "120.204", "120.216",
+    "183.192", "183.200", "183.206", "183.212", "183.220", "183.230",
+    "211.138", "211.139", "211.140", "211.141", "211.142", "211.143",
+    "223.104", "223.105", "223.106", "223.107", "223.108", "223.72",
+    "202.38", "202.112", "202.117", "210.45", "166.111",
+]
+
+
+def random_cn_ip() -> str:
+    prefix = random.choice(_CN_IP_PREFIXES)
+    return f"{prefix}.{random.randint(1, 254)}.{random.randint(1, 254)}"
+
+
+def build_visitor_headers(ua: str = "", referer: str = "") -> dict:
+    ip = random_cn_ip()
+    headers = {
+        "User-Agent": ua or random.choice(USER_AGENTS),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+        "DNT": "1",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none" if not referer else "same-site",
+        "Sec-Fetch-User": "?1",
+        "X-Forwarded-For": ip,
+        "X-Real-IP": ip,
+        "CF-Connecting-IP": ip,
+        "True-Client-IP": ip,
+        "X-Client-IP": ip,
+        "X-Forwarded-Proto": "https",
+    }
+    if referer:
+        headers["Referer"] = referer
+        headers["Sec-Fetch-Site"] = "cross-site"
+    return headers
+
+
 # ========== 环境信息收集 ==========
 def get_node_id_file() -> str:
     return os.path.join(os.path.dirname(os.path.abspath(__file__)), "node_id.txt")
@@ -189,11 +239,7 @@ async def run_sync_check(project: dict, config: dict) -> dict:
     }
     start = time.time()
     ua = config.get("user_agent") or random.choice(USER_AGENTS)
-    headers = {
-        "User-Agent": ua,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-    }
+    headers = build_visitor_headers(ua=ua)
     try:
         async with httpx.AsyncClient(
             headers=headers, timeout=REQUEST_TIMEOUT,
@@ -316,7 +362,7 @@ async def run_async_check(project: dict, config: dict, search_engine: str = "bai
     search_url = _build_search_url(search_engine, keyword)
     target_domain = urlparse(project["url"]).netloc
     ua = random.choice(USER_AGENTS)
-    headers = {"User-Agent": ua, "Accept-Language": "zh-CN,zh;q=0.9"}
+    headers = build_visitor_headers(ua=ua, referer="https://www.baidu.com/")
 
     try:
         async with httpx.AsyncClient(
@@ -516,8 +562,22 @@ async def run_browser_check(project: dict, config: dict, browser_ctx: dict | Non
             locale="zh-CN",
             timezone_id="Asia/Shanghai",
             ignore_https_errors=True,
+            extra_http_headers={
+                "X-Forwarded-For": random_cn_ip(),
+                "X-Real-IP": random_cn_ip(),
+                "CF-Connecting-IP": random_cn_ip(),
+                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+            },
         )
         page = await context.new_page()
+
+        # 反检测：隐藏 webdriver 痕迹
+        await page.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+            Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
+            Object.defineProperty(navigator, 'languages', {get: () => ['zh-CN','zh','en']});
+            window.chrome = {runtime: {}};
+        """)
 
         log(f"  → 浏览器访问: {project['name']} ({project['url']})")
         resp = await page.goto(project["url"], wait_until="domcontentloaded", timeout=30000)

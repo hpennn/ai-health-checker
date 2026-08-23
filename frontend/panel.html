@@ -492,7 +492,7 @@
           <input type="number" id="chk-batch-count" class="form-input" value="1" min="1" max="50" style="width:100px" onchange="onBatchCountChange()">
           <span class="text-xs text-slate-400" id="chk-batch-hint">添加1个检查器</span>
         </div>
-        <p class="text-xs text-slate-400 mt-1">大于1时自动批量创建，名称格式：类型-序号，如 同步检测-1、同步检测-2</p>
+        <p class="text-xs text-slate-400 mt-1">留空则根据项目名自动命名，如：AI工具箱-HTTP、百度+谷歌-搜索</p>
       </div>
       <div class="grid grid-cols-2 gap-4">
         <div class="form-group">
@@ -1115,9 +1115,18 @@ async function saveChecker() {
     config.visit_inner_pages = document.getElementById('chk-browser-inner').checked;
   }
 
-  const typeName = { sync: '同步检测', async: '异步检测', browser: '浏览器检测' }[type] || type;
+  const typeShort = { sync: 'HTTP', async: '搜索', browser: '浏览器', video: '视频' }[type] || type;
+  const typeName = { sync: '同步检测', async: '异步检测', browser: '浏览器检测', video: '视频播放' }[type] || type;
   const manualName = document.getElementById('chk-name').value.trim();
   const batchCount = id ? 1 : (parseInt(document.getElementById('chk-batch-count').value) || 1);
+
+  // 根据绑定项目自动生成有意义的名称
+  const autoGenName = (suffix = '') => {
+    if (selectedProjects.length === 0) return `${typeName}${suffix}`;
+    if (selectedProjects.length === 1) return `${selectedProjects[0]}-${typeShort}${suffix}`;
+    if (selectedProjects.length <= 3) return `${selectedProjects.join('+')}-${typeShort}${suffix}`;
+    return `${selectedProjects[0]}等${selectedProjects.length}站-${typeShort}${suffix}`;
+  };
 
   const buildBody = (name) => ({
     name,
@@ -1131,23 +1140,24 @@ async function saveChecker() {
 
   try {
     if (id) {
-      const body = buildBody(manualName || `${typeName}-${Date.now().toString(36)}`);
+      const body = buildBody(manualName || autoGenName());
       await api(`/api/checkers/${id}`, { method: 'PUT', body: JSON.stringify(body) });
       toast('检查器已更新');
     } else {
-      const existing = allCheckers.filter(c => c.type === type);
-      let startNum = existing.length + 1;
       let created = 0;
       for (let i = 0; i < batchCount; i++) {
         let name;
         if (batchCount === 1 && manualName) {
           name = manualName;
+        } else if (batchCount > 1 && manualName) {
+          name = `${manualName}-${i + 1}`;
         } else {
-          name = `${typeName}-${startNum + i}`;
+          const suffix = batchCount > 1 ? `-${i + 1}` : '';
+          name = autoGenName(suffix);
           // 避免重名
+          let attempt = 2;
           while (allCheckers.some(c => c.name === name)) {
-            startNum++;
-            name = `${typeName}-${startNum + i}`;
+            name = autoGenName(`-${attempt++}`);
           }
         }
         await api('/api/checkers', { method: 'POST', body: JSON.stringify(buildBody(name)) });
@@ -1167,7 +1177,7 @@ function onBatchCountChange() {
   if (n <= 1) {
     hint.textContent = '添加1个检查器';
   } else {
-    hint.textContent = `将批量添加 ${n} 个检查器（自动命名）`;
+    hint.textContent = `将批量创建 ${n} 个检查器（自动命名：项目名-类型-序号）`;
   }
 }
 
