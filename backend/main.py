@@ -194,6 +194,10 @@ class VideoConfigItem(BaseModel):
     name: str
     url: str
     play_count: int = Field(default=5, ge=1, le=100)
+    # 关联的视频检查器 ID 列表（哪些检查器要播放此视频）
+    checker_ids: list[str] = Field(default_factory=list)
+    # 异步搜索关键词列表（async 类型视频检查器使用）
+    keywords: list[str] = Field(default_factory=list)
 
 
 class VideoConfigBatchRequest(BaseModel):
@@ -737,7 +741,9 @@ async def update_video_config(req: VideoConfigBatchRequest):
     vc = VideoConfig.get_instance()
     if req.videos:
         for v in req.videos:
-            await vc.add_video(v.name, v.url, v.play_count)
+            await vc.add_video(v.name, v.url, v.play_count,
+                               checker_ids=v.checker_ids,
+                               keywords=v.keywords)
     if req.delete:
         for name in req.delete:
             await vc.delete_video(name)

@@ -275,7 +275,7 @@
         <div class="overflow-x-auto">
           <table>
             <thead>
-              <tr><th>名称</th><th>URL</th><th>播放次数</th><th>状态</th><th>操作</th></tr>
+              <tr><th>名称</th><th>URL</th><th>播放次数</th><th>分配检查器</th><th>关键词</th><th>状态</th><th>操作</th></tr>
             </thead>
             <tbody id="videos-tbody"></tbody>
           </table>
@@ -287,13 +287,13 @@
         <div class="flex items-center justify-between mb-4">
           <div>
             <h3 class="font-semibold text-slate-800 flex items-center gap-2"><span>🎬</span> 视频播放检查器</h3>
-            <p class="text-xs text-slate-500 mt-1">使用浏览器自动播放项目页面中的视频，需分配给本地节点</p>
+            <p class="text-xs text-slate-500 mt-1">使用浏览器自动播放视频配置中的 URL，需分配给本地节点</p>
           </div>
           <button class="btn btn-primary" onclick="showVideoCheckerModal()">+ 添加视频检查器</button>
         </div>
         <div class="overflow-x-auto">
           <table>
-            <thead><tr><th>名称</th><th>节点</th><th>间隔(分)</th><th>项目数</th><th>状态</th><th>操作</th></tr></thead>
+            <thead><tr><th>名称</th><th>节点</th><th>间隔(分)</th><th>视频数</th><th>状态</th><th>操作</th></tr></thead>
             <tbody id="video-checkers-tbody"></tbody>
           </table>
         </div>
@@ -519,7 +519,10 @@
         </div>
       </div>
       <div class="form-group">
-        <label class="form-label">分配项目（不选=全部项目）</label>
+        <div class="flex items-center justify-between mb-1">
+          <label class="form-label mb-0">分配项目（不选=全部项目）</label>
+          <button type="button" class="text-xs text-blue-600 hover:text-blue-800" onclick="toggleAllProjects()">全选/取消</button>
+        </div>
         <div id="chk-projects" class="border rounded p-3 max-h-40 overflow-y-auto space-y-1"></div>
       </div>
       <!-- 类型特定配置 -->
@@ -645,6 +648,20 @@
         <label class="form-label">播放次数</label>
         <input type="number" id="video-play-count" class="form-input" value="5" min="1" max="999">
       </div>
+      <div class="form-group">
+        <label class="form-label">分配检查器（勾选后，这些视频检查器会播放此视频）</label>
+        <div id="video-checker-list" class="border rounded-lg p-3 max-h-40 overflow-y-auto grid grid-cols-2 gap-2 text-sm">
+          <span class="text-slate-400">暂无视频检查器，请先创建</span>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">搜索关键词（异步视频检测使用，回车添加）</label>
+        <div class="flex items-center gap-2 mb-2">
+          <input type="text" id="video-keyword-input" class="form-input" placeholder="输入关键词后回车添加" onkeydown="if(event.key==='Enter'){event.preventDefault();addVideoKeyword();}">
+          <button type="button" class="btn btn-primary btn-sm" onclick="addVideoKeyword()">添加</button>
+        </div>
+        <div id="video-keywords-tags" class="flex flex-wrap gap-2"></div>
+      </div>
     </div>
     <div class="p-5 border-t flex justify-end gap-2">
       <button class="btn btn-gray" onclick="closeModal('video-modal')">取消</button>
@@ -700,10 +717,7 @@
           <input type="number" id="vc-duration-max" class="form-input" value="45" min="5" max="600">
         </div>
       </div>
-      <div class="form-group">
-        <label class="form-label">选择项目（勾选需要播放视频的站点）</label>
-        <div id="vc-projects" class="border rounded-lg p-3 max-h-48 overflow-y-auto grid grid-cols-2 gap-2"></div>
-      </div>
+      <p class="text-xs text-slate-500">提示：视频检查器基于视频配置列表中的 URL 播放，无需选择项目。在"视频配置列表"中为每个视频分配检查器。</p>
     </div>
     <div class="p-5 border-t flex justify-end gap-2">
       <button class="btn btn-gray" onclick="closeModal('video-checker-modal')">取消</button>
@@ -1044,6 +1058,12 @@ function onCheckerTypeChange() {
     const localNode = allNodes.find(n => n.node_id !== 'builtin' && n.capabilities?.has_browser);
     if (localNode) nodeSelect.value = localNode.node_id;
   }
+}
+
+function toggleAllProjects() {
+  const cbs = document.querySelectorAll('.chk-proj-cb');
+  const allChecked = Array.from(cbs).every(cb => cb.checked);
+  cbs.forEach(cb => cb.checked = !allChecked);
 }
 
 async function showAddCheckerModal() {
@@ -1435,7 +1455,7 @@ async function loadVideoConfig() {
 function renderVideoTable() {
   const tbody = document.getElementById('videos-tbody');
   if (!videoList.length) {
-    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-slate-400 py-6">暂无视频配置，点击右上角添加</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center text-slate-400 py-6">暂无视频配置，点击右上角添加</td></tr>';
     return;
   }
   tbody.innerHTML = videoList.map((v, i) => {
@@ -1444,10 +1464,26 @@ function renderVideoTable() {
     if (st === 'success') badge = '<span class="badge badge-green">✅ 成功</span>';
     else if (st === 'failed' || st === 'error') badge = `<span class="badge badge-red" title="${(v.last_error || '').replace(/"/g, '&quot;')}">❌ 失败</span>`;
     else if (st === 'running' || st === 'playing') badge = '<span class="badge badge-blue">▶ 播放中</span>';
+    // 已分配的检查器列表
+    const checkerIds = v.checker_ids || [];
+    const checkerNames = checkerIds.map(id => {
+      const c = allCheckers.find(x => x.id === id);
+      return c ? c.name : id;
+    });
+    const checkerDisplay = checkerNames.length
+      ? `<span class="badge badge-purple" title="${checkerNames.join('、').replace(/"/g, '&quot;')}">${checkerNames.length} 个</span>`
+      : '<span class="text-slate-400 text-xs">未分配</span>';
+    // 关键词展示
+    const keywords = v.keywords || [];
+    const kwDisplay = keywords.length
+      ? `<span class="text-xs text-slate-600" title="${keywords.join('、').replace(/"/g, '&quot;')}">${keywords.length} 个</span>`
+      : '<span class="text-slate-400 text-xs">-</span>';
     return `<tr>
       <td class="font-medium">${v.name}</td>
       <td class="text-slate-500 text-xs" style="max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${v.url}">${v.url}</td>
       <td>${v.play_count ?? 5}</td>
+      <td>${checkerDisplay}</td>
+      <td>${kwDisplay}</td>
       <td>${badge}${v.last_error ? `<div class="text-xs text-red-500 mt-1" style="max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${v.last_error.replace(/"/g, '&quot;')}">${v.last_error}</div>` : ''}</td>
       <td>
         <button class="btn btn-sm btn-gray" onclick="editVideo(${i})">编辑</button>
@@ -1457,12 +1493,69 @@ function renderVideoTable() {
   }).join('');
 }
 
+let _videoCheckerIds = [];  // 视频弹窗中暂存的已选检查器 ID
+let _videoKeywords = [];    // 视频弹窗中暂存的关键词列表
+
+function renderVideoCheckerList(selectedIds = []) {
+  const container = document.getElementById('video-checker-list');
+  if (!container) return;
+  const vcs = (allCheckers || []).filter(c => c.type === 'video');
+  if (!vcs.length) {
+    container.innerHTML = '<span class="text-slate-400">暂无视频检查器，请先创建</span>';
+    return;
+  }
+  const selected = new Set(selectedIds);
+  container.innerHTML = vcs.map(c =>
+    `<label class="flex items-center gap-2 cursor-pointer text-sm">
+       <input type="checkbox" value="${c.id}" class="video-checker-cb" ${selected.has(c.id) ? 'checked' : ''}> ${c.name}
+     </label>`
+  ).join('');
+}
+
+function renderVideoKeywordTags() {
+  const container = document.getElementById('video-keywords-tags');
+  if (!container) return;
+  if (!_videoKeywords.length) {
+    container.innerHTML = '<span class="text-xs text-slate-400">未设置关键词</span>';
+    return;
+  }
+  container.innerHTML = _videoKeywords.map((kw, i) =>
+    `<span class="inline-flex items-center gap-1 px-2 py-1 bg-indigo-50 text-indigo-700 rounded-full text-xs">
+       ${kw.replace(/"/g, '&quot;')}
+       <button type="button" class="text-indigo-400 hover:text-indigo-600" onclick="removeVideoKeyword(${i})">&times;</button>
+     </span>`
+  ).join('');
+}
+
+function addVideoKeyword() {
+  const input = document.getElementById('video-keyword-input');
+  const val = (input.value || '').trim();
+  if (!val) return;
+  if (_videoKeywords.includes(val)) {
+    toast('关键词已存在', 'warning');
+    return;
+  }
+  _videoKeywords.push(val);
+  input.value = '';
+  renderVideoKeywordTags();
+}
+
+function removeVideoKeyword(idx) {
+  _videoKeywords.splice(idx, 1);
+  renderVideoKeywordTags();
+}
+
 function showVideoModal() {
   document.getElementById('video-modal-title').textContent = '添加视频';
   document.getElementById('video-original-name').value = '';
   document.getElementById('video-name').value = '';
   document.getElementById('video-url').value = '';
   document.getElementById('video-play-count').value = 5;
+  _videoCheckerIds = [];
+  _videoKeywords = [];
+  // 刷新视频检查器列表（确保 allCheckers 已加载）
+  renderVideoCheckerList([]);
+  renderVideoKeywordTags();
   openModal('video-modal');
 }
 
@@ -1474,6 +1567,10 @@ function editVideo(idx) {
   document.getElementById('video-name').value = v.name;
   document.getElementById('video-url').value = v.url;
   document.getElementById('video-play-count').value = v.play_count ?? 5;
+  _videoCheckerIds = [...(v.checker_ids || [])];
+  _videoKeywords = [...(v.keywords || [])];
+  renderVideoCheckerList(_videoCheckerIds);
+  renderVideoKeywordTags();
   openModal('video-modal');
 }
 
@@ -1484,16 +1581,26 @@ async function saveVideo() {
   const original = document.getElementById('video-original-name').value;
   if (!name || !url) return toast('名称和URL不能为空', 'warning');
 
+  // 收集已勾选的检查器 ID
+  const checker_ids = Array.from(document.querySelectorAll('.video-checker-cb:checked')).map(cb => cb.value);
+
   // 构造新列表（若编辑则替换旧项）
   let videos;
   let deleteList = [];
+  const newItem = { name, url, play_count, checker_ids, keywords: [..._videoKeywords] };
   if (original && original !== name) {
-    videos = videoList.filter(v => v.name !== original).map(v => ({ name: v.name, url: v.url, play_count: v.play_count ?? 5 }));
-    videos.push({ name, url, play_count });
+    videos = videoList.filter(v => v.name !== original).map(v => ({
+      name: v.name, url: v.url, play_count: v.play_count ?? 5,
+      checker_ids: v.checker_ids || [], keywords: v.keywords || [],
+    }));
+    videos.push(newItem);
     deleteList = [original];
   } else {
-    const others = videoList.filter(v => v.name !== name).map(v => ({ name: v.name, url: v.url, play_count: v.play_count ?? 5 }));
-    videos = [...others, { name, url, play_count }];
+    const others = videoList.filter(v => v.name !== name).map(v => ({
+      name: v.name, url: v.url, play_count: v.play_count ?? 5,
+      checker_ids: v.checker_ids || [], keywords: v.keywords || [],
+    }));
+    videos = [...others, newItem];
   }
 
   await api('/api/video-config', {
@@ -1509,7 +1616,10 @@ async function deleteVideo(idx) {
   const v = videoList[idx];
   if (!v) return;
   if (!confirm(`确定删除视频「${v.name}」？`)) return;
-  const videos = videoList.filter((_, i) => i !== idx).map(x => ({ name: x.name, url: x.url, play_count: x.play_count ?? 5 }));
+  const videos = videoList.filter((_, i) => i !== idx).map(x => ({
+    name: x.name, url: x.url, play_count: x.play_count ?? 5,
+    checker_ids: x.checker_ids || [], keywords: x.keywords || [],
+  }));
   await api('/api/video-config', {
     method: 'POST',
     body: JSON.stringify({ videos, delete: [v.name] }),
@@ -1579,7 +1689,8 @@ function startVideoStatusAutoRefresh() {
 async function loadVideoCheckers() {
   try {
     const data = await api('/api/checkers');
-    const vcs = (data.checkers || []).filter(c => c.type === 'video');
+    allCheckers = data.checkers || [];
+    const vcs = allCheckers.filter(c => c.type === 'video');
     const tbody = document.getElementById('video-checkers-tbody');
     if (!tbody) return;
     if (!vcs.length) {
@@ -1592,12 +1703,13 @@ async function loadVideoCheckers() {
       const statusBadge = running
         ? '<span class="badge badge-green">● 运行中</span>'
         : (c.enabled ? '<span class="badge badge-gray">已停止</span>' : '<span class="badge badge-gray">已禁用</span>');
-      const projCount = (c.projects || []).length;
+      // 计算分配给此检查器的视频数量
+      const videoCount = videoList.filter(v => (v.checker_ids || []).includes(c.id)).length;
       return `<tr>
         <td class="font-medium">${c.name}</td>
         <td>${nodeName}</td>
         <td>${c.interval_min}-${c.interval_max}</td>
-        <td>${projCount}</td>
+        <td>${videoCount}</td>
         <td>${statusBadge}</td>
         <td>
           <button class="btn btn-sm ${running ? 'btn-danger' : 'btn-success'}" onclick="toggleVideoChecker('${c.id}', ${running ? 'false' : 'true'})">${running ? '停止' : '启动'}</button>
@@ -1623,10 +1735,6 @@ function showVideoCheckerModal() {
   nodeSelect.innerHTML = allNodes
     .filter(n => n.node_id !== 'builtin' && n.capabilities?.has_browser)
     .map(n => `<option value="${n.node_id}">${n.name}</option>`).join('');
-  const projDiv = document.getElementById('vc-projects');
-  projDiv.innerHTML = allProjects.map(p =>
-    `<label class="flex items-center gap-2 cursor-pointer text-sm"><input type="checkbox" value="${p.name}" class="vc-proj-cb"> ${p.name}</label>`
-  ).join('');
   openModal('video-checker-modal');
 }
 
@@ -1647,27 +1755,24 @@ async function editVideoChecker(id) {
   nodeSelect.innerHTML = allNodes
     .filter(n => n.node_id !== 'builtin' && n.capabilities?.has_browser)
     .map(n => `<option value="${n.node_id}" ${n.node_id === c.node_id ? 'selected' : ''}>${n.name}</option>`).join('');
-  const projDiv = document.getElementById('vc-projects');
-  const selected = new Set(c.projects || []);
-  projDiv.innerHTML = allProjects.map(p =>
-    `<label class="flex items-center gap-2 cursor-pointer text-sm"><input type="checkbox" value="${p.name}" class="vc-proj-cb" ${selected.has(p.name) ? 'checked' : ''}> ${p.name}</label>`
-  ).join('');
   openModal('video-checker-modal');
 }
 
 async function saveVideoChecker() {
   const id = document.getElementById('vc-id').value;
-  const name = document.getElementById('vc-name').value.trim();
-  if (!name) return toast('请输入检查器名称', 'warning');
-  const projects = Array.from(document.querySelectorAll('.vc-proj-cb:checked')).map(cb => cb.value);
-  if (!projects.length) return toast('请至少选择一个项目', 'warning');
-  const body = {
+  const manualName = document.getElementById('vc-name').value.trim();
+  const batch = parseInt(document.getElementById('vc-batch').value) || 1;
+
+  // 自动命名：视频检查器无项目，使用"视频播放-N"格式
+  const autoGenName = (suffix = '') => `视频播放${suffix}`;
+
+  const body = (name) => ({
     name,
     type: 'video',
     node_id: document.getElementById('vc-node').value,
     interval_min: parseInt(document.getElementById('vc-interval-min').value) || 60,
     interval_max: parseInt(document.getElementById('vc-interval-max').value) || 120,
-    projects,
+    projects: [],  // video 类型不绑定项目
     config: {
       headless: true,
       video_enabled: true,
@@ -1675,18 +1780,34 @@ async function saveVideoChecker() {
       video_duration_min: parseInt(document.getElementById('vc-duration-min').value) || 15,
       video_duration_max: parseInt(document.getElementById('vc-duration-max').value) || 45,
     }
-  };
+  });
   try {
     if (id) {
-      await api(`/api/checkers/${id}`, { method: 'PUT', body: JSON.stringify(body) });
+      const name = manualName || autoGenName();
+      await api(`/api/checkers/${id}`, { method: 'PUT', body: JSON.stringify(body(name)) });
       toast('视频检查器已更新');
     } else {
-      const batch = parseInt(document.getElementById('vc-batch').value) || 1;
+      let created = 0;
       for (let i = 0; i < batch; i++) {
-        const b = { ...body, name: batch > 1 ? `${name}-${i+1}` : name };
-        await api('/api/checkers', { method: 'POST', body: JSON.stringify(b) });
+        let name;
+        if (batch === 1 && manualName) {
+          name = manualName;
+        } else if (batch > 1 && manualName) {
+          name = `${manualName}-${i+1}`;
+        } else {
+          const suffix = batch > 1 ? `-${i+1}` : '';
+          name = autoGenName(suffix);
+          // 避免重名
+          let attempt = 2;
+          while (allCheckers.some(c => c.name === name)) {
+            name = autoGenName(`-${attempt++}`);
+          }
+        }
+        await api('/api/checkers', { method: 'POST', body: JSON.stringify(body(name)) });
+        allCheckers.push({ id: 'tmp', name, type: 'video' });
+        created++;
       }
-      toast(batch > 1 ? `已创建 ${batch} 个视频检查器` : '视频检查器已创建');
+      toast(created > 1 ? `已创建 ${batch} 个视频检查器` : '视频检查器已创建');
     }
     closeModal('video-checker-modal');
     loadCheckers();

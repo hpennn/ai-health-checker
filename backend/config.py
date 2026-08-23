@@ -348,20 +348,35 @@ class VideoConfig:
     def save(self):
         _save_json(VIDEO_CONFIG_FILE, self.videos)
 
-    def get_videos(self) -> list[dict]:
-        return self.videos
-
-    async def add_video(self, name: str, url: str, play_count: int = 5) -> dict:
+    async def add_video(self, name: str, url: str, play_count: int = 5,
+                        checker_ids: list[str] | None = None,
+                        keywords: list[str] | None = None) -> dict:
+        """添加或更新视频配置，支持 checker_ids 和 keywords 字段"""
         for v in self.videos:
             if v["name"] == name:
                 v["url"] = url
                 v["play_count"] = play_count
+                v["checker_ids"] = checker_ids if checker_ids is not None else v.get("checker_ids", [])
+                v["keywords"] = keywords if keywords is not None else v.get("keywords", [])
                 self.save()
                 return {"action": "updated", "video": v}
-        video = {"name": name, "url": url, "play_count": play_count}
+        video = {
+            "name": name, "url": url, "play_count": play_count,
+            "checker_ids": checker_ids or [],
+            "keywords": keywords or [],
+        }
         self.videos.append(video)
         self.save()
         return {"action": "added", "video": video}
+
+    def get_videos(self) -> list[dict]:
+        """获取视频列表，向后兼容：为旧数据补充 checker_ids / keywords 字段"""
+        for v in self.videos:
+            if "checker_ids" not in v:
+                v["checker_ids"] = []
+            if "keywords" not in v:
+                v["keywords"] = []
+        return self.videos
 
     async def delete_video(self, name: str) -> bool:
         before = len(self.videos)

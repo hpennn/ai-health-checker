@@ -921,6 +921,145 @@ class NodeAgent:
                     pass
         return results
 
+    async def _fetch_video_config(self) -> list[dict]:
+        """从服务器获取视频配置列表，失败时返回空列表"""
+        data = await self._api_get("/api/video-config")
+        if data and isinstance(data.get("videos"), list):
+            return data["videos"]
+        return []
+
+    async def _video_browser_worker(self, videos: list[dict], cfg: dict,
+                                    checker_id: str, checker_name: str) -> list[dict]:
+        """视频播放 worker：启动 Chromium，逐个打开视频 URL 并播放页面中的视频元素。
+        复用浏览器实例以提高效率，并确保 build_visitor_headers / extra_http_headers / 反 webdriver 等 IP 与反检测头全覆盖。
+        """
+        results = []
+        pw = None
+        browser = None
+        headless = cfg.get("headless", True)
+        video_play_count = max(1, min(int(cfg.get("video_play_count", 1)), 10))
+        video_duration_min = max(5, int(cfg.get("video_duration_min", 15)))
+        video_duration_max = max(video_duration_min, int(cfg.get("video_duration_max", 45)))
+        try:
+            from playwright.async_api import async_playwright
+            pw = await async_playwright().start()
+            browser = await pw.chromium.launch(
+                headless=headless,
+                args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
+            )
+
+            ua_info = random.choice([
+                {"ua": USER_AGENTS[0], "type": "desktop", "viewport": {"width": 1366, "height": 768}},
+                {"ua": USER_AGENTS[1], "type": "desktop", "viewport": {"width": 1440, "height": 900}},
+                {"ua": USER_AGENTS[4], "type": "mobile", "viewport": {"width": 390, "height": 844, "isMobile": True, "hasTouch": True, "deviceScaleFactor": 3}},
+                {"ua": USER_AGENTS[6], "type": "tablet", "viewport": {"width": 768, "height": 1024, "isMobile": True, "hasTouch": True, "deviceScaleFactor": 2}},
+            ])
+
+            for video in videos:
+                result = {
+                    "video_name": video["name"],
+                    "video_url": video["url"],
+                    "name": video["name"],
+                    "url": video["url"],
+                    "checker_id": checker_id,
+                    "checker_name": checker_name,
+                    "node_id": self.node_id,
+                    "checker_type": "video",
+                    "success": False,
+                    "video_played": False,
+                    "video_count": 0,
+                    "video_play_seconds": 0,
+                    "duration_seconds": 0,
+                    "user_agent": ua_info["ua"],
+                    "device_type": ua_info["type"],
+                    "status": "offline",
+                    "status_code": None,
+                    "response_time_ms": None,
+                    "title": "",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "error": None,
+                }
+                start = time.time()
+                try:
+                    context = await browser.new_context(
+                        user_agent=ua_info["ua"],
+                        viewport=ua_info["viewport"],
+                        locale="zh-CN",
+                        timezone_id="Asia/Shanghai",
+                        ignore_https_errors=True,
+                        extra_http_headers={
+                            "X-Forwarded-For": random_cn_ip(),
+                            "X-Real-IP": random_cn_ip(),
+                            "CF-Connecting-IP": random_cn_ip(),
+                            "True-Client-IP": random_cn_ip(),
+                            "X-Client-IP": random_cn_ip(),
+                            "X-Forwarded-Proto": "https",
+                            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                        },
+                    )
+                    page = await context.new_page()
+                    # 反检测：隐藏 webdriver 痕迹
+                    await page.add_init_script("""
+                        Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+                        Object.defineProperty(navigator, 'plugins', {get: () => [1,2,3,4,5]});
+                        Object.defineProperty(navigator, 'languages', {get: () => ['zh-CN','zh','en']});
+                        window.chrome = {runtime: {}};
+                    """)
+
+                    log(f"  → 视频播放: {video['name']} ({video['url']})")
+                    resp = await page.goto(video["url"], wait_until="domcontentloaded", timeout=30000)
+                    result["response_time_ms"] = round((time.time() - start) * 1000, 2)
+                    if resp:
+                        result["status_code"] = resp.status
+                    await asyncio.sleep(random.uniform(2, 4))
+
+                    try:
+                        result["title"] = await page.title()
+                    except Exception:
+                        pass
+
+                    result["success"] = True
+                    result["status"] = "online"
+
+                    # 播放页面中的视频
+                    vp = await _play_videos(
+                        page, video_play_count, video_duration_min, video_duration_max,
+                    )
+                    result["video_played"] = vp["played"]
+                    result["video_count"] = vp["count"]
+                    result["video_play_seconds"] = vp["total_seconds"]
+                    if vp["played"]:
+                        log(f"  ▶ 播放了 {vp['count']} 个视频，共 {vp['total_seconds']} 秒")
+
+                    status_icon = "✓" if result.get("status") == "online" else "✗"
+                    log(f"  {status_icon} {video['name']}: {result.get('status', '?')}")
+                    await context.close()
+                except Exception as e:
+                    result["success"] = False
+                    result["status"] = "offline"
+                    result["error"] = str(e)[:200]
+                    log(f"  ✗ {video['name']}: 异常 {e}")
+
+                result["duration_seconds"] = round(time.time() - start, 2)
+                results.append(result)
+                await asyncio.sleep(random.uniform(1, 3))
+        except ImportError:
+            log(f"  [Video] Playwright 未安装，worker 跳过 {len(videos)} 个视频")
+        except Exception as e:
+            log(f"  [Video] worker 启动失败: {e}")
+        finally:
+            if browser:
+                try:
+                    await browser.close()
+                except Exception:
+                    pass
+            if pw:
+                try:
+                    await pw.stop()
+                except Exception:
+                    pass
+        return results
+
     async def execute_task(self, task: dict):
         """执行单个 checker 任务"""
         checker_id = task["id"]
@@ -931,6 +1070,72 @@ class NodeAgent:
             return
 
         cfg = task.get("config", {})
+
+        now = time.time()
+        state = self._checker_states.setdefault(checker_id, {"last_run": 0})
+        interval_min = task.get("interval_min", 5) * 60
+        interval_max = task.get("interval_max", 15) * 60
+        # 随机化下次执行时间，避免所有 checker 同时集中执行
+        next_interval = random.uniform(interval_min, max(interval_min, interval_max))
+
+        if state["last_run"] > 0:
+            elapsed = now - state["last_run"]
+            if elapsed < next_interval:
+                return
+
+        checker_name = task.get("name", checker_id)
+
+        # ===== video 类型：独立执行路径，基于视频配置而非项目列表 =====
+        if checker_type == "video":
+            if not self.env_info["capabilities"].get("chromium_installed"):
+                log(f"[Task] {checker_id}: Chromium 未安装，跳过视频检测")
+                return
+            # 从服务器获取视频配置，筛选出 checker_ids 包含当前检查器的视频
+            all_videos = await self._fetch_video_config()
+            assigned_videos = [v for v in all_videos if checker_id in (v.get("checker_ids") or [])]
+            if not assigned_videos:
+                log(f"[Task] {checker_name}: 无分配视频，跳过本轮执行")
+                state["last_run"] = time.time()
+                return
+            # 按 play_count 展开并打乱顺序
+            random.shuffle(assigned_videos)
+            expanded = []
+            for v in assigned_videos:
+                pc = int(v.get("play_count", 1))
+                for _ in range(max(1, pc)):
+                    expanded.append(v)
+            assigned_videos = expanded
+            log(f"[Task] 执行 video checker: {checker_name} ({len(assigned_videos)} 个视频播放)")
+
+            cfg = dict(cfg)
+            cfg["video_enabled"] = True
+            cfg.setdefault("video_play_count", 1)
+            cfg.setdefault("video_duration_min", 15)
+            cfg.setdefault("video_duration_max", 45)
+
+            concurrency = max(1, min(5, self.browser_concurrency))
+            if concurrency <= 1 or len(assigned_videos) <= 1:
+                log(f"  [Video] 单浏览器模式，顺序播放 {len(assigned_videos)} 个视频")
+                results = await self._video_browser_worker(assigned_videos, cfg, checker_id, checker_name)
+            else:
+                n = min(concurrency, len(assigned_videos))
+                groups = [[] for _ in range(n)]
+                for i, v in enumerate(assigned_videos):
+                    groups[i % n].append(v)
+                log(f"  [Video] 并发模式: {n} 个浏览器实例，每组视频数: {[len(g) for g in groups]}")
+                worker_results = await asyncio.gather(
+                    *[self._video_browser_worker(g, cfg, checker_id, checker_name) for g in groups]
+                )
+                results = []
+                for wr in worker_results:
+                    results.extend(wr)
+
+            if results:
+                await self.report_results(checker_id, results)
+            state["last_run"] = time.time()
+            return
+
+        # ===== sync / async / browser 类型：基于项目列表的原有逻辑 =====
         assigned = task.get("assigned_projects", [])
         if not assigned:
             assigned = list(self.projects)
@@ -946,35 +1151,15 @@ class NodeAgent:
                 expanded.append(proj)
         assigned = expanded
 
-        now = time.time()
-        state = self._checker_states.setdefault(checker_id, {"last_run": 0})
-        interval_min = task.get("interval_min", 5) * 60
-        interval_max = task.get("interval_max", 15) * 60
-        # 随机化下次执行时间，避免所有 checker 同时集中执行
-        next_interval = random.uniform(interval_min, max(interval_min, interval_max))
-
-        if state["last_run"] > 0:
-            elapsed = now - state["last_run"]
-            if elapsed < next_interval:
-                return
-
-        # browser/video 类型检查环境
-        if checker_type in ("browser", "video") and not self.env_info["capabilities"].get("chromium_installed"):
+        # browser 类型检查环境
+        if checker_type == "browser" and not self.env_info["capabilities"].get("chromium_installed"):
             log(f"[Task] {checker_id}: Chromium 未安装，跳过浏览器检测")
             return
 
-        checker_name = task.get("name", checker_id)
         log(f"[Task] 执行 {checker_type} checker: {checker_name} ({len(assigned)} 个项目)")
         results = []
 
-        if checker_type in ("browser", "video"):
-            # video 类型强制开启视频播放
-            if checker_type == "video":
-                cfg = dict(cfg)
-                cfg["video_enabled"] = True
-                cfg.setdefault("video_play_count", 1)
-                cfg.setdefault("video_duration_min", 15)
-                cfg.setdefault("video_duration_max", 45)
+        if checker_type == "browser":
             concurrency = max(1, min(5, self.browser_concurrency))
             if concurrency <= 1:
                 log(f"  [Browser] 单浏览器模式，顺序处理 {len(assigned)} 个项目")
