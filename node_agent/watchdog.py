@@ -12,11 +12,22 @@ import logging
 from datetime import datetime
 
 NODE_DIR = os.path.dirname(os.path.abspath(__file__))
-# Allow override via env, default to bundled Python path on Windows
-PYTHON = os.environ.get("NODE_PYTHON", sys.executable)
+
+# ========== 加载配置文件 ==========
+_config = {}
+_config_path = os.path.join(NODE_DIR, "node_config.env")
+if os.path.exists(_config_path):
+    with open(_config_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if "=" in line and not line.startswith("#"):
+                k, v = line.split("=", 1)
+                _config[k.strip()] = v.strip()
+
+PYTHON = os.environ.get("NODE_PYTHON") or _config.get("NODE_PYTHON", sys.executable)
 NODE_SCRIPT = os.path.join(NODE_DIR, "node_agent.py")
-SERVER = os.environ.get("NODE_SERVER", "http://47.113.216.237:8700")
-NODE_NAME = os.environ.get("NODE_NAME", "家里电脑")
+SERVER = os.environ.get("NODE_SERVER") or _config.get("NODE_SERVER", "http://47.113.216.237:8700")
+NODE_NAME = os.environ.get("NODE_NAME") or _config.get("NODE_NAME", "我的电脑")
 LOG_FILE = os.path.join(NODE_DIR, "watchdog.log")
 PID_FILE = os.path.join(NODE_DIR, "node.pid")
 CHECK_INTERVAL = 30  # seconds
