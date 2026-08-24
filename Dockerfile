@@ -20,6 +20,7 @@ RUN groupadd -r appuser && useradd -r -g appuser appuser \
 
 COPY backend/ ./
 COPY frontend/ ./frontend/
+COPY node_agent/node_agent.py ./node_agent.py
 
 USER appuser
 

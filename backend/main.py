@@ -8,12 +8,13 @@ import logging
 import json
 import re
 import platform
+import hashlib
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 
@@ -50,6 +51,10 @@ dispatcher: Optional[CheckerDispatcher] = None
 _indexnow_pusher: Optional[IndexNowPusher] = None
 _time_range_task = None
 _node_monitor_task = None
+
+# ========== 节点代码版本（用于自动更新） ==========
+_NODE_CODE_HASH: str = ""
+_NODE_CODE_CONTENT: str = ""
 
 
 # ========== 请求模型 ==========
@@ -244,6 +249,7 @@ async def on_config_change(changed_keys: set):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global dispatcher, _time_range_task, _node_monitor_task, _indexnow_pusher
+    global _NODE_CODE_HASH, _NODE_CODE_CONTENT
 
     os.makedirs(DATA_DIR, exist_ok=True)
 
@@ -271,6 +277,16 @@ async def lifespan(app: FastAPI):
         config.indexnow_key = _indexnow_pusher.key
         config.save()
     _indexnow_pusher.start()
+
+    # 加载节点代码用于自动更新
+    _node_code_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "node_agent.py")
+    try:
+        with open(_node_code_path, "r", encoding="utf-8") as f:
+            _NODE_CODE_CONTENT = f.read()
+        _NODE_CODE_HASH = hashlib.sha256(_NODE_CODE_CONTENT.encode("utf-8")).hexdigest()[:16]
+        logger.info(f"[NodeAutoUpdate] 节点代码已加载，hash={_NODE_CODE_HASH}，{len(_NODE_CODE_CONTENT)} 字节")
+    except FileNotFoundError:
+        logger.warning(f"[NodeAutoUpdate] node_agent.py 未找到: {_node_code_path}，自动更新不可用")
 
     logger.info(f"AI Health Checker v{APP_VERSION} 启动完成（面板+节点架构）")
     yield
@@ -508,6 +524,7 @@ async def node_heartbeat(req: NodeHeartbeatRequest):
         "install_commands": result.get("install_commands", []),
         "projects": load_projects(),
         "browser_concurrency": config.browser_concurrency,
+        "version_hash": _NODE_CODE_HASH,
     }
 
 
@@ -539,6 +556,18 @@ async def node_install_command(node_id: str, req: NodeInstallRequest):
         node_id, req.command, req.package
     )
     return {"message": "安装指令已下发", "command": cmd}
+
+
+@app.get("/api/node/code")
+async def node_code():
+    """返回最新版节点代码（用于自动更新）"""
+    if not _NODE_CODE_CONTENT:
+        raise HTTPException(404, "节点代码不可用")
+    return PlainTextResponse(
+        _NODE_CODE_CONTENT,
+        media_type="text/plain; charset=utf-8",
+        headers={"X-Node-Version": _NODE_CODE_HASH},
+    )
 
 
 @app.get("/api/nodes")
