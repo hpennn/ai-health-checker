@@ -681,6 +681,12 @@ async def resume_checker(checker_id: str):
     return {"message": "已恢复"}
 
 
+@app.post("/api/checkers/{checker_id}/check-now")
+async def trigger_checker_now(checker_id: str):
+    ok = await dispatcher.trigger_checker(checker_id)
+    return {"message": "已触发立即检查" if ok else "检查器未运行或不存在", "ok": ok}
+
+
 # ========== 本地访问结果（兼容旧版 local_visitor） ==========
 @app.post("/api/local-visit-result")
 async def save_local_visit_result(result: LocalVisitResult):

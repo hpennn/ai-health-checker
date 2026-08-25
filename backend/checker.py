@@ -39,10 +39,15 @@ class Checker:
         self._stop_event = asyncio.Event()
         self._pause_event = asyncio.Event()
         self._pause_event.set()
+        self._check_now_event = asyncio.Event()
         self.check_count = 0
         self.failed_count = 0
         self.last_check_time: Optional[str] = None
         self.current_task = "空闲"
+
+    def trigger_now(self):
+        """触发立即检查"""
+        self._check_now_event.set()
 
     def _build_headers(self) -> dict:
         return {
@@ -154,10 +159,18 @@ class Checker:
                     # 项目间短暂间隔
                     if self.running and self._pause_event.is_set():
                         await asyncio.sleep(random.uniform(1, 3))
-                # 等待下一轮
+                # 等待下一轮（可被 trigger_now 中断）
                 if self.running and self._pause_event.is_set():
                     wait = random.uniform(self.interval_min, self.interval_max)
-                    await self._sleep_interruptible(wait)
+                    try:
+                        await asyncio.wait_for(
+                            self._check_now_event.wait(),
+                            timeout=wait
+                        )
+                        self._check_now_event.clear()
+                        logger.info(f"[Checker-{self.id}] 收到立即检查信号")
+                    except asyncio.TimeoutError:
+                        pass
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -276,6 +289,14 @@ class CheckerManager:
     def resume_all(cls):
         for c in cls._checkers.values():
             c.resume()
+
+    @classmethod
+    def trigger_now(cls, checker_id: str) -> bool:
+        c = cls._checkers.get(checker_id)
+        if c and c.running and not c.paused:
+            c.trigger_now()
+            return True
+        return False
 
     @classmethod
     def get_checkers_status(cls) -> list[dict]:

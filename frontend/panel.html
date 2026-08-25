@@ -1033,7 +1033,8 @@ async function loadCheckers() {
           <td class="text-red-500">${rt.failed_count || 0}</td>
           <td class="text-xs text-slate-400">${fmtTime(rt.last_check_time)}</td>
           <td>
-            ${c.enabled ? `<button class="btn btn-sm btn-warning" onclick="controlChecker('${c.id}','pause')">暂停</button>` : `<button class="btn btn-sm btn-success" onclick="controlChecker('${c.id}','resume')">恢复</button>`}
+            ${rt.paused ? `<button class="btn btn-sm btn-success" onclick="controlChecker('${c.id}','resume')">恢复</button>` : (c.enabled ? `<button class="btn btn-sm btn-warning" onclick="controlChecker('${c.id}','pause')">暂停</button>` : `<button class="btn btn-sm btn-success" onclick="controlChecker('${c.id}','resume')">恢复</button>`)}
+            <button class="btn btn-sm btn-primary" onclick="checkNow('${c.id}')">立即检查</button>
             <button class="btn btn-sm btn-gray" onclick="editChecker('${c.id}')">编辑</button>
             <button class="btn btn-sm btn-danger" onclick="deleteChecker('${c.id}')">删除</button>
           </td>
@@ -1211,6 +1212,16 @@ async function deleteChecker(id) {
 async function controlChecker(id, action) {
   await api(`/api/checkers/${id}/${action}`, { method: 'POST' });
   toast(`已${action === 'pause' ? '暂停' : '恢复'}`);
+  loadCheckers();
+}
+
+async function checkNow(id) {
+  try {
+    const res = await api(`/api/checkers/${id}/check-now`, { method: 'POST' });
+    toast(res.message || '已触发立即检查');
+  } catch(e) {
+    toast('触发失败', 'error');
+  }
   loadCheckers();
 }
 

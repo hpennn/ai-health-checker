@@ -25,6 +25,7 @@ class CheckerDispatcher:
         self._remote_stats: dict[str, dict] = {}
         # 远程 checker 手动暂停集合
         self._paused_remote: set[str] = set()
+        self._trigger_remote: set[str] = set()
         self._lock = asyncio.Lock()
 
     async def initialize(self):
@@ -225,6 +226,20 @@ class CheckerDispatcher:
             self._paused_remote.discard(checker_id)
         logger.info(f"[Dispatcher] 恢复 checker: {checker_id}")
 
+    async def trigger_checker(self, checker_id: str) -> bool:
+        """立即触发一次检查"""
+        cfg = self.get_checker(checker_id)
+        if not cfg:
+            return False
+        if checker_id in self._builtin_instances:
+            ok = CheckerManager.trigger_now(checker_id)
+            logger.info(f"[Dispatcher] 立即触发 builtin checker: {checker_id}, ok={ok}")
+            return ok
+        else:
+            self._trigger_remote.add(checker_id)
+            logger.info(f"[Dispatcher] 标记远程 checker 立即执行: {checker_id}")
+            return True
+
     # ========== 节点任务分发 ==========
     def get_node_tasks(self, node_id: str) -> list[dict]:
         """获取分配给指定节点的 checker 配置和项目列表"""
@@ -241,6 +256,9 @@ class CheckerDispatcher:
                 task["assigned_projects"] = assigned
                 # 手动暂停的 checker 标记为 paused，节点收到后跳过执行
                 task["manually_paused"] = cfg["id"] in self._paused_remote
+                if cfg["id"] in self._trigger_remote:
+                    task["trigger_now"] = True
+                    self._trigger_remote.discard(cfg["id"])
                 tasks.append(task)
         return tasks
 
