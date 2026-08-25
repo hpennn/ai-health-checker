@@ -89,6 +89,7 @@ class AsyncChecker:
         self._stop_event = asyncio.Event()
         self._pause_event = asyncio.Event()
         self._pause_event.set()
+        self._check_now_event = asyncio.Event()
         self.check_count = 0
         self.failed_count = 0
         self.last_check_time: Optional[str] = None
@@ -234,7 +235,15 @@ class AsyncChecker:
                     await asyncio.sleep(random.uniform(2, 5))
                 if self.running and self._pause_event.is_set():
                     wait = random.uniform(self.interval_min, self.interval_max)
-                    await self._sleep_interruptible(wait)
+                    try:
+                        await asyncio.wait_for(
+                            self._check_now_event.wait(),
+                            timeout=wait
+                        )
+                        self._check_now_event.clear()
+                        logger.info(f"[AsyncChecker-{self.id}] 收到立即检查信号")
+                    except asyncio.TimeoutError:
+                        pass
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -267,6 +276,9 @@ class AsyncChecker:
     def resume(self):
         self._pause_event.set()
         self.paused = False
+
+    def trigger_now(self):
+        self._check_now_event.set()
 
     def get_status(self) -> dict:
         return {

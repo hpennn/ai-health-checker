@@ -289,13 +289,40 @@ class CheckerDispatcher:
         return [c["id"] for c in self.checkers_config if c.get("node_id") == node_id]
 
     def pause_all(self):
+        """暂停所有 checker（含远程）"""
         for inst in self._builtin_instances.values():
             inst.pause()
+        # 远程 checker 全部加入暂停集合
+        for cfg in self.checkers_config:
+            cid = cfg["id"]
+            if cid not in self._builtin_instances:
+                self._paused_remote.add(cid)
+        logger.info("[Dispatcher] 已暂停所有 checker")
 
     def resume_all(self):
+        """恢复所有 checker（含远程）"""
         for inst in self._builtin_instances.values():
             inst.resume()
+        # 远程 checker 全部清除暂停标记
+        self._paused_remote.clear()
+        logger.info("[Dispatcher] 已恢复所有 checker")
+
+    def trigger_all(self) -> int:
+        """立即触发所有运行中的 checker，返回触发数量"""
+        count = 0
+        for inst in self._builtin_instances.values():
+            if inst.running and not inst.paused:
+                inst.trigger_now()
+                count += 1
+        for cfg in self.checkers_config:
+            cid = cfg["id"]
+            if cid not in self._builtin_instances and cid not in self._paused_remote:
+                self._trigger_remote.add(cid)
+                count += 1
+        logger.info(f"[Dispatcher] 已触发 {count} 个 checker 立即检查")
+        return count
 
     def stop_all(self):
+        """停止所有 builtin checker（关闭时调用）"""
         for inst in self._builtin_instances.values():
             inst.stop()

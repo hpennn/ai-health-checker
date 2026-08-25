@@ -687,6 +687,28 @@ async def trigger_checker_now(checker_id: str):
     return {"message": "已触发立即检查" if ok else "检查器未运行或不存在", "ok": ok}
 
 
+# ========== 检查器批量控制 ==========
+@app.post("/api/checkers/batch/pause-all")
+async def batch_pause_all():
+    dispatcher.pause_all()
+    await CheckerManager.ws_broadcast_control("pause")
+    return {"message": "已暂停所有检查器"}
+
+
+@app.post("/api/checkers/batch/resume-all")
+async def batch_resume_all():
+    dispatcher.resume_all()
+    await CheckerManager.ws_broadcast_control("resume")
+    return {"message": "已恢复所有检查器"}
+
+
+@app.post("/api/checkers/batch/check-now")
+async def batch_check_now():
+    count = dispatcher.trigger_all()
+    await CheckerManager.ws_broadcast_control("check-now")
+    return {"message": f"已触发 {count} 个检查器立即检查", "triggered": count}
+
+
 # ========== 本地访问结果（兼容旧版 local_visitor） ==========
 @app.post("/api/local-visit-result")
 async def save_local_visit_result(result: LocalVisitResult):

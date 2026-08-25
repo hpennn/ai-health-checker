@@ -220,13 +220,18 @@
     <!-- ====== 检查器管理 ====== -->
     <div id="page-checkers" class="page">
       <div class="card p-5">
-        <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
           <h3 class="font-semibold text-slate-800">检查器列表</h3>
-          <button class="btn btn-primary" onclick="showAddCheckerModal()">+ 添加检查器</button>
+          <div class="flex gap-2 flex-wrap">
+            <button class="btn btn-success btn-sm" onclick="batchChecker('resume-all')">▶ 全部启动</button>
+            <button class="btn btn-warning btn-sm" onclick="batchChecker('pause-all')">⏸ 全部暂停</button>
+            <button class="btn btn-primary btn-sm" onclick="batchChecker('check-now')">⚡ 立即全部检查</button>
+            <button class="btn btn-primary" onclick="showAddCheckerModal()">+ 添加检查器</button>
+          </div>
         </div>
         <div class="overflow-x-auto">
           <table>
-            <thead><tr><th>名称</th><th>类型</th><th>所属节点</th><th>状态</th><th>检查次数</th><th>失败</th><th>最后检查</th><th>操作</th></tr></thead>
+            <thead><tr><th>名称</th><th>类型</th><th>所属节点</th><th>状态</th><th>当前任务</th><th>检查次数</th><th>失败</th><th>最后检查</th><th>操作</th></tr></thead>
             <tbody id="checkers-tbody"></tbody>
           </table>
         </div>
@@ -833,9 +838,12 @@ function connectWS() {
         const activePage = document.querySelector('.page.active').id;
         if (activePage === 'page-dashboard') loadDashboard();
         if (activePage === 'page-results') loadResults();
+        if (activePage === 'page-checkers') loadCheckers();
       }
-      if (msg.type === 'config_update') {
-        // 可以实时更新配置
+      if (msg.type === 'control') {
+        const activePage = document.querySelector('.page.active').id;
+        if (activePage === 'page-checkers') loadCheckers();
+        if (activePage === 'page-dashboard') loadDashboard();
       }
     } catch {}
   };
@@ -1023,12 +1031,23 @@ async function loadCheckers() {
       const nodeName = node ? node.name : c.node_id;
       let runtimeStatus = rt.running ? 'running' : (c.enabled ? 'pending' : 'stopped');
       if (c.node_id !== 'builtin' && rt.node_online === false) runtimeStatus = 'offline';
+
+      // 工作状态可视化
+      const isWorking = rt.running && !rt.paused && rt.current_task && rt.current_task !== '空闲';
+      const currentTask = rt.current_task || (rt.paused ? '已暂停' : (c.enabled ? '等待中' : '已停止'));
+      const taskIcon = isWorking
+        ? '<span class="inline-block w-2 h-2 rounded-full bg-green-500 animate-pulse mr-1.5"></span>'
+        : (rt.paused ? '<span class="inline-block w-2 h-2 rounded-full bg-yellow-400 mr-1.5"></span>'
+           : '<span class="inline-block w-2 h-2 rounded-full bg-slate-300 mr-1.5"></span>');
+      const taskColor = isWorking ? 'text-green-600 font-medium' : (rt.paused ? 'text-yellow-600' : 'text-slate-400');
+
       return `
         <tr>
           <td class="font-medium">${c.name}</td>
           <td>${checkerTypeBadge(c.type)}</td>
           <td>${nodeName}</td>
           <td>${statusBadge(runtimeStatus)}${rt.paused ? ' <span class="badge badge-yellow">暂停</span>' : ''}</td>
+          <td class="text-xs ${taskColor} whitespace-nowrap">${taskIcon}${currentTask}</td>
           <td>${rt.check_count || 0}</td>
           <td class="text-red-500">${rt.failed_count || 0}</td>
           <td class="text-xs text-slate-400">${fmtTime(rt.last_check_time)}</td>
@@ -1040,7 +1059,7 @@ async function loadCheckers() {
           </td>
         </tr>`;
     }).join('');
-    document.getElementById('checkers-tbody').innerHTML = html || '<tr><td colspan="8" class="text-center text-slate-400 py-4">暂无检查器</td></tr>';
+    document.getElementById('checkers-tbody').innerHTML = html || '<tr><td colspan="9" class="text-center text-slate-400 py-4">暂无检查器</td></tr>';
   } catch (e) {}
 }
 
@@ -1221,6 +1240,18 @@ async function checkNow(id) {
     toast(res.message || '已触发立即检查');
   } catch(e) {
     toast('触发失败', 'error');
+  }
+  loadCheckers();
+}
+
+async function batchChecker(action) {
+  const labels = { 'resume-all': '全部启动', 'pause-all': '全部暂停', 'check-now': '立即全部检查' };
+  if (action === 'pause-all' && !confirm('确定暂停所有检查器？')) return;
+  try {
+    const res = await api(`/api/checkers/batch/${action}`, { method: 'POST' });
+    toast(res.message || labels[action] + '成功');
+  } catch(e) {
+    toast(labels[action] + '失败', 'error');
   }
   loadCheckers();
 }
@@ -1958,7 +1989,7 @@ async function init() {
     if (active === 'page-nodes') loadNodes();
     if (active === 'page-checkers') loadCheckers();
     if (active === 'page-videos') loadVideoStatus();
-  }, 15000);
+  }, 5000);
   startVideoStatusAutoRefresh();
 }
 

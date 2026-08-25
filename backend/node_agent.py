@@ -1133,8 +1133,10 @@ class NodeAgent:
 
         if state["last_run"] > 0:
             elapsed = now - state["last_run"]
-            if elapsed < next_interval:
+            if elapsed < next_interval and not task.get("trigger_now"):
                 return
+            if task.get("trigger_now"):
+                log(f"[Task] {checker_id}: 收到立即执行信号，跳过间隔等待")
 
         checker_name = task.get("name", checker_id)
 
